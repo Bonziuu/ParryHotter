@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from tools.generate_hud_textures import generate as generate_hud_textures
 
 
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -82,6 +83,10 @@ def build_mod(game: Path, vdfs_executable: Path | None = None) -> Path:
     if not compiler.is_file():
         raise PackagingError(f"Nie ma GothicVDFS.exe: {compiler}")
     dat, subtitles = validate_compiled(game)
+    # 6 slot icons, 6 target glyphs, active frame and center dot.
+    generated_sprites = generate_hud_textures(game / "_work" / "Data" / "Textures")
+    if len(generated_sprites) != 14:
+        raise PackagingError("Nie wygenerowano wszystkich 14 elementow HUD")
 
     with tempfile.TemporaryDirectory(prefix="ph_vdfs_") as temp:
         stage = Path(temp)
@@ -92,6 +97,18 @@ def build_mod(game: Path, vdfs_executable: Path | None = None) -> Path:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
 
+        # Source icons are original and reproducible, safe to package.
+        manifest = [
+            "_work/Data/Scripts/_compiled/Gothic.dat",
+            "_work/Data/Scripts/Content/Cutscene/Ou.bin"
+        ]
+        for sprite in generated_sprites:
+            rel = Path("_work/Data/Textures") / sprite.name
+            dst = stage / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(sprite, dst)
+            manifest.append(rel.as_posix())
+
         vdf_script = stage / "build.vm"
         vdf_script.write_text(
             "[BEGINVDF]\n"
@@ -99,8 +116,7 @@ def build_mod(game: Path, vdfs_executable: Path | None = None) -> Path:
             "BaseDir=.\n"
             "VDFName=ParryHotter.mod\n"
             "[FILES]\n"
-            "_work/Data/Scripts/_compiled/Gothic.dat\n"
-            "_work/Data/Scripts/Content/Cutscene/Ou.bin\n"
+            + "".join(item + "\n" for item in manifest)
             "[EXCLUDE]\n"
             "[INCLUDE]\n"
             "[ENDVDF]\n",
