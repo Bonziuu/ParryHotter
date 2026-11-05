@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 from tools.generate_hud_textures import generate as generate_hud_textures
 from tools.download_hud import HudDownloadError, fetch_verified_hud
+from tools.wand_asset import prepare_wand, WandError
 
 
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -87,6 +88,12 @@ def build_mod(
     if not compiler.is_file():
         raise PackagingError(f"Nie ma GothicVDFS.exe: {compiler}")
     dat, subtitles = validate_compiled(game)
+    # The mesh is embedded in the user's locally built .mod. Offline
+    # procedural fallback ensures the plugin never references a missing wand.
+    try:
+        prepare_wand(game, allow_download=False)
+    except (WandError, OSError, ValueError) as exc:
+        raise PackagingError(f"Failed to prepare Gothic 3DS wand: {exc}") from exc
     # 6 slot icons, 6 target glyphs, active frame and center dot.
     generated_sprites = generate_hud_textures(game / "_work" / "Data" / "Textures")
     if len(generated_sprites) != 14:
@@ -118,6 +125,19 @@ def build_mod(
         plugin_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(dll, plugin_dst)
         manifest.append(plugin_rel.as_posix())
+
+        for source, rel in (
+            (game / "_work" / "Data" / "Meshes" / "PH_WAND.3DS",
+             Path("_work/Data/Meshes/PH_WAND.3DS")),
+            (game / "_work" / "Data" / "Textures" / "PH_WAND.TGA",
+             Path("_work/Data/Textures/PH_WAND.TGA")),
+        ):
+            if not source.is_file() or source.stat().st_size < 128:
+                raise PackagingError(f"Missing prepared wand asset: {source}")
+            dst = stage / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, dst)
+            manifest.append(rel.as_posix())
 
         for sprite in generated_sprites:
             rel = Path("_work/Data/Textures") / sprite.name
