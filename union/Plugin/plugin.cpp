@@ -158,8 +158,8 @@ namespace {
         gShownTargetSlot = targetIndex;
     }
 
-    // Aiming and cast only use NPCs the Gothic engine has already focused.
-    // Do not cast through walls simply because a cursor is nearby.
+    // Camera-center raycast plus native NPC focus; reject walls/occlusion.
+    // No magic is cast just because an NPC happens to be in front of Harry.
     bool HasValidNpcTarget() {
         if (!player) return false;
         oCNpc* focus = player->GetFocusNpc();
@@ -167,7 +167,27 @@ namespace {
         // Native focus already checks visibility. Do not show a spell marker
         // on an extremely distant NPC just because focus is still cached.
         const float distance = player->GetDistanceToVob(*focus);
-        return distance >= 0.0f && distance < 1900.0f;
+        if (distance < 0.0f || distance >= 1900.0f) return false;
+
+        // A center-screen ray from the camera must reach the focused NPC
+        // before hitting a wall or another VOB. This prevents highlighting
+        // Gothic's focus target when it is far outside the screen center.
+        zCAICamera* cam = zCAICamera::current;
+        zCVob* cameraVob = cam ? cam->camVob : nullptr;
+        zCWorld* world = player->GetHomeWorld();
+        if (!cameraVob || !world) return false;
+        zVEC3 direction = cameraVob->GetAtVectorWorld();
+        if (direction.Length_Sqr() < 0.01f) return false;
+        direction.Normalize();
+        direction *= zVEC3(1900.0f);
+        const int flags = zTRACERAY_VOB_BBOX |
+                          zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
+        const int hit = world->TraceRayNearestHit(
+            cameraVob->GetPositionWorld(), direction,
+            static_cast<zCVob*>(player), flags
+        );
+        return hit && world->traceRayReport.foundVob ==
+                          static_cast<zCVob*>(focus);
     }
 
     // Use the native spellbook so that mana, target rules and Gothic visual FX
