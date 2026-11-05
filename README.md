@@ -1,12 +1,25 @@
 # Parry Hotter — Gothic 1 🪄
 
-**Wersja 0.4 DEV — polskie skrypty, sześć run, eksperymentalny HUD i sterowanie PPM+LPM przez Union oraz budowanie osobnego .mod.**
+**Wersja 0.6 DEV — polskie skrypty, sześć run, HUD Union, kamera zza ramienia i lokalny system podmiany stroju Harry'ego.**
 
 To nadal **prototyp źródłowy**, a nie kompletny mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic`, fizyki ragdoll ani własnego sterowania klikaniem myszką. Nie gwarantujemy działania wszystkich efektów — instalacja i parsowanie Gothic 1 na komputerze gracza nadal wymagają testów.
 
 ### Diagnostyka bez ręcznego szukania plików
 
 Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utworzy `ParryHotter_diagnostics.txt` obok pliku BAT i sprawdzi w trybie tylko do odczytu: profile DEV/PLAY, plik `.mod`, kompilację zaklęć, polskie OU.bin, wszystkie 14 ikon oraz ustawienia myszy. Możesz przesłać raport, jeśli gra zachowuje się nieprawidłowo. Raport **nie sprawdza rozgrywki**, fizyki ani ruchów Harry'ego.
+
+## Etap 2/5: wygląd Harry'ego, szkolna szata i peleryna
+
+**Zaimplementowane w repozytorium:**
+- Parry Hotter zaczyna nową grę w **szacie Maga Ognia z Gothic 1** (tymczasowa długa szata z animacjami Gothica, a NIE oryginalny Harry).
+- Instalator szuka oryginalnego archiwum **Harry Potter (PC 2002), bez miotły** w prywatnej pamięci, pobranych plikach i na stronie modelu. Gdy model jest już pobrany do Downloads, odnajduje go bez ręcznej ścieżki.
+- Jeśli dostępny jest Blender, `blender_prepare.py` przygotowuje scenę i przetwarza wszystkie cztery tekstury PNG na bezpiecznie nazwane `PH_HARRY_TEX0..3.TGA` dla Gothica.
+- `blender_visual_first.py` przygotowuje dopasowanie Harry'ego do szkieletu Gothica, usuwa oryginalne wagi kości HP2 i sprawdza, czy minimum 85% wierzchołków otrzymało wagi ludzkiego szkieletu. Wynikiem nadal jest **podgląd .blend**, nie finalny ASC.
+- `tools/visual_install.py` **włącza oryginalny wygląd dopiero po wykryciu lokalnie przekonwertowanego modelu** `Gothic/ParryHotter-private/HP2-Harry-converted/PH_HARRY.ASC` i czterech tekstur TGA. Dopisuje model do `HUMANS.MDS`, tworzy nowy strój, aktualizuje bohatera i przygotowuje źródła do ponownego parsowania.
+- `ZBUDUJ_MOD_PO_REPARSE.bat` umieszcza prywatny model i tekstury **tylko w Twoim lokalnym .mod**, jeśli źródła i skompilowany DAT są kompletne. Publiczne repozytorium nie zawiera modelu z gry Harry Potter.
+- `SPRAWDZ_PARRY_HOTTER.bat` rozpoznaje tymczasową szatę i sprawdza, czy prawdziwy model ASC oraz jego tekstury są aktywne.
+
+**Nadal brakuje:** wygenerowania i sprawdzenia prawdziwego pliku ASC z oryginalnego FBX, importu szkieletu Gothica do Blendera, modelu różdżki i testu animacji peleryny w ZenGin. Nie deklarujemy, że HP2 Harry jest już widoczny w grze.
 
 ## Etap 1/5: kamera i celowanie (wersja developerska)
 
