@@ -14,6 +14,7 @@ from pathlib import Path
 
 from tools.setup import download_polish_scripts, unpack_polish_content
 from tools.install import install, PatchError
+from tools.visual_install import register_armor_source, select_visual_armor, ARMOR_SCRIPT
 
 COMPILER_VERSION = "v0.9.5"
 COMPILER_URL = (
@@ -110,6 +111,36 @@ def main() -> int:
             if marker not in symbols_upper:
                 raise PatchError(f"Compiled Gothic.dat missing marker {marker!r}")
         print(f"OK: Daedalus compiled Gothic.dat ({len(compiled)} bytes)")
+
+        # Second compile validates the *optional* converted Harry costume
+        # C_Item script and hero visual switch, without including any of the
+        # copyrighted 3D assets in the CI runner or published repository.
+        source_file = content / "Gothic.src"
+        hero_file = content / "Story" / "NPC" / "PC_Hero.d"
+        source_file.write_bytes(register_armor_source(
+            source_file.read_bytes().decode("latin-1")
+        ).encode("latin-1"))
+        hero_file.write_bytes(select_visual_armor(
+            hero_file.read_bytes().decode("latin-1")
+        ).encode("latin-1"))
+        (content / "Items" / "ParryHarryArmor.d").write_bytes(
+            ARMOR_SCRIPT.read_bytes()
+        )
+        outfit_dat = temp / "HarryGothic.dat"
+        second = subprocess.run(
+            [str(compiler), str(source_file), "--output-dat", str(outfit_dat),
+             "--runtime", str(runtime)],
+            cwd=temp, capture_output=True, text=False, timeout=240,
+        )
+        if second.returncode or not outfit_dat.is_file():
+            message = (second.stderr or second.stdout or b"").decode(
+                "utf-8", "replace"
+            )[-6000:]
+            raise PatchError("Optional Harry outfit Daedalus compile failed:\n" +
+                             message.encode("ascii", "backslashreplace").decode("ascii"))
+        if b"PH_ARMOR_HARRY" not in outfit_dat.read_bytes().upper():
+            raise PatchError("Converted Harry armor symbol missing from compiled DAT")
+        print(f"OK: optional local Harry armor script compiled ({outfit_dat.stat().st_size} bytes)")
         print("Engine, animations, mouse and gameplay still require a real game test")
     return 0
 
