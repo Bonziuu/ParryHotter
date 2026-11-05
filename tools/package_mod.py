@@ -71,7 +71,8 @@ def validate_compiled(game: Path) -> tuple[Path, Path]:
     # Search case-insensitively to avoid rejecting correctly compiled DATs.
     if (b"flipendo" not in raw.lower() or
             b"ph_rune_flipendo" not in raw.lower() or
-            b"ph_selected_spell" not in raw.lower()):
+            b"ph_selected_spell" not in raw.lower() or
+            b"ph_union_loaded" not in raw.lower()):
         raise PackagingError(
              "Gothic.dat nie zawiera pelnych zaklec i mostka HUD Parry Hotter. "
             "Ponownie skompiluj skrypty przez GothicStarter_mod."
