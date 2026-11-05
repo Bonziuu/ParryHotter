@@ -22,7 +22,7 @@ class PackagingTests(unittest.TestCase):
         self.dat = self.game / "_work" / "Data" / "Scripts" / "_compiled" / "Gothic.dat"
         self.dat.parent.mkdir(parents=True)
         self.dat.write_bytes(
-            b"Fake test data only; PH_Rune_Flipendo; Flipendo; PH_SELECTED_SPELL;"
+            b"Fake test data only; PH_Rune_Flipendo; Flipendo; PH_SELECTED_SPELL PH_UNION_LOADED;"
             + b"\x00" * 1024
         )
         self.subtitle = self.game / "_work" / "Data" / "Scripts" / "Content" / "Cutscene" / "Ou.bin"
@@ -47,6 +47,11 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaises(PackagingError):
             validate_compiled(self.game)
 
+    def test_reject_stale_dat_missing_union_presence_symbol(self):
+        self.dat.write_bytes(b"Flipendo PH_Rune_Flipendo PH_SELECTED_SPELL")
+        with self.assertRaises(PackagingError):
+            validate_compiled(self.game)
+
     def test_reject_stale_dat_missing_union_spell_bridge(self):
         self.dat.write_bytes(b"Flipendo PH_Rune_Flipendo without newer bridge")
         with self.assertRaises(PackagingError):
@@ -55,7 +60,7 @@ class PackagingTests(unittest.TestCase):
     def test_uppercase_dat_symbols_are_accepted(self):
         # ZenGin can emit normalized uppercase instance names.
         self.dat.write_bytes(
-            b"Compiled bytecode PH_RUNE_FLIPENDO, FLIPENDO, AVADA KEDAVRA PH_SELECTED_SPELL"
+            b"Compiled bytecode PH_RUNE_FLIPENDO, FLIPENDO, AVADA KEDAVRA PH_SELECTED_SPELL PH_UNION_LOADED"
         )
         validate_compiled(self.game)
 
@@ -105,7 +110,7 @@ class PackagingTests(unittest.TestCase):
         textures.mkdir(parents=True)
         for i in range(4):
             (textures / f"PH_HARRY_TEX{i}.TGA").write_bytes(b"private test TGA")
-        self.dat.write_bytes(b"Flipendo PH_Rune_Flipendo PH_SELECTED_SPELL PH_ARMOR_HARRY")
+        self.dat.write_bytes(b"Flipendo PH_Rune_Flipendo PH_SELECTED_SPELL PH_UNION_LOADED PH_ARMOR_HARRY")
         stamp = max(self.src.stat().st_mtime, armor.stat().st_mtime,
                     hero.stat().st_mtime) + 5
         os.utime(self.dat, (stamp, stamp))
