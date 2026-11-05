@@ -39,6 +39,7 @@ class VisualInstallerTests(unittest.TestCase):
         source = (
             '*3DSMAX_ASCIIEXPORT 200\n*GEOMOBJECT\n{\n'
             '*MESH {\n*BITMAP "PH_HARRY_TEX0.TGA"\n}\n}\n'
+            '*MESH_SOFTSKINVERTS {\n1\n"Bip01 Spine2" 1.0\n}\n'
             + ("// geometry + weights\n" * 24)
         )
         (self.output / "PH_HARRY.ASC").write_text(source, encoding="latin-1")
