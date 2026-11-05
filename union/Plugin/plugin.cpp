@@ -12,6 +12,7 @@
 #include "SpellHudState.hpp"
 #include "AimCamera.hpp"
 #include "SpellCooldown.hpp"
+#include "SpellImpactTag.hpp"
 #include <chrono>
 #include <array>
 
@@ -74,6 +75,7 @@ namespace {
     ParryHotter::Controller gController;
     ParryHotter::AimCamera gCamera;
     ParryHotter::SpellCooldown gCooldown;
+    ParryHotter::SpellImpactTag gImpactTag;
     std::array<zCView*, 6> gSlots{};
     std::array<zCView*, 6> gTargetIcons{};
     zCView* gSelection = nullptr;
@@ -279,6 +281,7 @@ namespace {
     }
 
     void ResetSelectedSpellForScript() {
+        gImpactTag.Reset();
         if (!parser) return;
         zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
         if (symbol) symbol->SetValue(0, 0);
@@ -290,7 +293,10 @@ namespace {
         // the vanilla spells that temporarily share the same spell IDs.
         if (!parser || slot < 0 || slot >= 6) return;
         zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
-        if (symbol) symbol->SetValue(slot + 1, 0);
+        if (symbol) {
+            symbol->SetValue(slot + 1, 0);
+            gImpactTag.MarkCast(slot, ParryHotter::SpellImpactTag::Clock::now());
+        }
     }
 
     bool CastAtFocusedNpc(int slot) {
@@ -329,6 +335,7 @@ namespace {
         auto out = gController.Step(input);
 
         const auto now = ParryHotter::SpellCooldown::Clock::now();
+        if (gImpactTag.Expired(now)) ResetSelectedSpellForScript();
         const int mana = player->GetAttribute(NPC_ATR_MANA);
         ShowHud();
         ShowSlotAvailability(mana, now);
@@ -375,8 +382,10 @@ cexport void Game_Entry() {}
 cexport void Game_Init() {
     gController.Reset();
     gCooldown.Reset();
+    gImpactTag.Reset();
 }
 cexport void Game_Exit() {
+    ResetSelectedSpellForScript();
     gCamera.Restore(zCAICamera::current);
     if (gAiming) LowerWand();
     RemoveHud();
