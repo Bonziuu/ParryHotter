@@ -26,6 +26,10 @@
 - [x] Prototyp Levicorpus: krótki, niedający obrażeń stan NPC, zamiast domyślnego 9-sekundowego zamrożenia (jeszcze bez uniesienia i obrotu 3D).
 - [x] Zdarzenia trafień rozpoznają wybrany slot przez `PH_SELECTED_SPELL` (Union → Daedalus), a starsze haki są bezpiecznie aktualizowane bez dublowania.
 - [x] Bumbardo: dodatkowy, krótki wstrząs człowieka przy trafieniu ponad natywny Stormfist (nie jest to jeszcze wyrzut z ragdollem).
+- [x] Eksperymentalne impulsy po prawdziwym trafieniu: mały wybicie Levicorpus i mocniejsze wybicie Bumbardo, obliczenia z limitami, testy przeszkód i zgodności z aktywnym `zCRigidBody`.
+- [x] `PH_UNION_LOADED` chroni zwykłe czary Gothica przed uruchomieniem specjalnych reakcji w profilu PLAY; builder wymaga nowego symbolu.
+- [ ] **Test w silniku** czy NPC mają `physicsEnabled` / `GetRigidBody()` podczas trafienia. Przy braku aktywnej fizyki dodatkowy impuls zostaje bezpiecznie pominięty.
+- [ ] Peleryna, lewitacja głową w dół, pełne obroty NPC, reagowanie na ziemię/sufit i powrót do rutyny po lądowaniu.
 - [x] Koniec globalnego osłabienia BreathOfDeath; stare kopie wartości służą do przywrócenia oryginału.
 - [ ] Dźwięki, błyski, pozostałe animacje i usunięcie konfliktów 1–6 z bazowym interfejsem gry.
 - [ ] Docelowe sterowanie swobodną kamerą z HP2 (obrót postaci i celowanie bez przeskoków).
