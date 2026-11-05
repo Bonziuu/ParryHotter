@@ -148,6 +148,54 @@ def prepare_blender_project(private_dir: Path) -> Path | None:
     return output
 
 
+def prepare_visual_first(private_dir: Path) -> Path | None:
+    """Visual-only attempt once a Gothic human skeleton .blend is available.
+
+    The original Harry appearance and robe are kept. No HP2 combat animations
+    or collision are transferred. Output is a PREVIEW, not compiled Gothic ASC.
+    """
+    game_dir = private_dir.parent.parent
+    gothic_reference = game_dir / "ParryHotter-private" / "GothicHuman.blend"
+    source = private_dir / "skharrymesh.fbx"
+    if not gothic_reference.is_file():
+        print(
+            "Brak GothicHuman.blend (szkielet z HUM_BODY_NAKED0.ASC). "
+            "Harry FBX zachowany; nie podmieniam wizualu w Gothic."
+        )
+        return None
+    if not source.is_file():
+        return None
+
+    blender_path = shutil.which("blender")
+    if blender_path is None:
+        root = Path(r"C:\Program Files\Blender Foundation")
+        if root.is_dir():
+            candidates = sorted(root.glob("Blender */blender.exe"), reverse=True)
+            blender_path = str(candidates[0]) if candidates else None
+    if blender_path is None:
+        print("Blender nie znaleziony — nie mozna zalozyc stroju Harry'ego na rig Gothic.")
+        return None
+
+    target = private_dir / "ParryHotter_VISUAL_FIRST.blend"
+    try:
+        command = [
+            blender_path, "--background", "--python",
+            str(ROOT / "tools" / "blender_visual_first.py"), "--",
+            str(source), str(gothic_reference), str(target),
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=240)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"Nie udalo sie uruchomic konwersji wygladu: {exc}")
+        return None
+    if result.returncode or not target.is_file():
+        print("Przygotowanie wygladu Harry'ego nie powiodlo sie:")
+        print((result.stderr or result.stdout)[-1200:])
+        return None
+    print(f"Przygotowano wizual Harry + peleryna: {target}")
+    print("To podglad do sprawdzenia w Blenderze, NIE gotowy model do Gothic 1.")
+    return target
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import private Harry HP2 model archive")
     parser.add_argument("--game", type=Path, default=DEFAULT_GAME)
@@ -156,6 +204,7 @@ def main() -> int:
     try:
         private_dir = prepare_model(args.game, args.zip)
         prepare_blender_project(private_dir)
+        prepare_visual_first(private_dir)
     except (ModelAssetError, OSError, zipfile.BadZipFile) as exc:
         print("Nie przygotowano modelu: " + str(exc), file=sys.stderr)
         print("Strona modelu: " + MODEL_PAGE, file=sys.stderr)
