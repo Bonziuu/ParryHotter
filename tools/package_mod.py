@@ -126,6 +126,41 @@ def build_mod(
             shutil.copy2(sprite, dst)
             manifest.append(rel.as_posix())
 
+        # Bundle the privately converted Harry mesh ONLY for the user's
+        # locally generated .mod. Never upload game/model assets to GitHub.
+        armor_src = game / "_work" / "Data" / "Scripts" / "Content" / "Items" / "ParryHarryArmor.d"
+        if armor_src.is_file():
+            if b"ph_armor_harry" not in dat.read_bytes().lower():
+                raise PackagingError(
+                    "Harry armor script was installed but Gothic.dat is stale. "
+                    "Use Reparse Scripts again."
+                )
+            hero_src = game / "_work" / "Data" / "Scripts" / "Content" / "Story" / "NPC" / "PC_Hero.d"
+            if dat.stat().st_mtime + 2 < max(armor_src.stat().st_mtime, hero_src.stat().st_mtime):
+                raise PackagingError("Converted Harry visual is newer than Gothic.dat: Reparse Scripts")
+            private_assets = [
+                (game / "_work" / "Data" / "Anims" / "PH_HARRY.ASC",
+                 Path("_work/Data/Anims/PH_HARRY.ASC")),
+                (game / "_work" / "Data" / "Anims" / "HUMANS.MDS",
+                 Path("_work/Data/Anims/HUMANS.MDS")),
+            ]
+            for i in range(4):
+                name = f"PH_HARRY_TEX{i}.TGA"
+                private_assets.append((
+                    game / "_work" / "Data" / "Textures" / name,
+                    Path("_work/Data/Textures") / name
+                ))
+            for source, rel in private_assets:
+                if not source.is_file():
+                    raise PackagingError(f"Harry visual installed but asset is missing: {source}")
+                if source.stat().st_size == 0:
+                    raise PackagingError(f"Empty Harry visual asset: {source}")
+                destination = stage / rel
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                manifest.append(rel.as_posix())
+            print("Added privately converted Harry outfit, HUMANS.MDS and four textures.")
+
         vdf_script = stage / "build.vm"
         vdf_script.write_text(
             "[BEGINVDF]\n"
