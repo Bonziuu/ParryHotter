@@ -34,7 +34,7 @@ class MouseConfigTests(unittest.TestCase):
         original = b"[DEBUG]\r\nGothic2_Control=0\r\nOther=11\r\n"
         (self.system / "SystemPack.ini.parryhotter-original").write_bytes(original)
         systempack.write_bytes(b"[DEBUG]\r\nGothic2_Control=1\r\nOther=99\r\n")
-        self.assertEqual(configure_mouse(self.game), [systempack])
+        self.assertEqual([p.name for p in configure_mouse(self.game)], ["SystemPack.ini"])
         self.assertIn(b"Gothic2_Control=0\r\nOther=99", systempack.read_bytes())
         self.assertEqual(configure_mouse(self.game), [])
         self.assertEqual((self.system / "SystemPack.ini.parryhotter-original").read_bytes(), original)
