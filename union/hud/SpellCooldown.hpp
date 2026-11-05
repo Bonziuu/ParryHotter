@@ -16,10 +16,15 @@ public:
     static constexpr std::array<int, Count> ManaCosts{{3, 3, 10, 5, 8, 5}};
     static constexpr std::array<int, Count> CooldownMs{{600, 3600, 2500, 1900, 2800, 5200}};
 
-    bool Ready(int slot, int mana, TimePoint now) const {
-        if (slot < 0 || slot >= Count || mana < ManaCosts[slot]) return false;
+    bool ReadyByTime(int slot, TimePoint now) const {
+        if (slot < 0 || slot >= Count) return false;
         if (!used_[slot]) return true;
         return now - last_[slot] >= std::chrono::milliseconds(CooldownMs[slot]);
+    }
+
+    bool Ready(int slot, int mana, TimePoint now) const {
+        return slot >= 0 && slot < Count && mana >= ManaCosts[slot] &&
+               ReadyByTime(slot, now);
     }
 
     int RemainingMs(int slot, TimePoint now) const {
@@ -31,11 +36,17 @@ public:
         return left > 0 ? static_cast<int>(left) : 0;
     }
 
-    bool Record(int slot, int mana, TimePoint now) {
-        if (!Ready(slot, mana, now)) return false;
+    // Called after Gothic has already invested (deducted) mana.
+    // No second mana check: a spell must still be castable after investment.
+    bool MarkPreparedCast(int slot, TimePoint now) {
+        if (!ReadyByTime(slot, now)) return false;
         last_[slot] = now;
         used_[slot] = true;
         return true;
+    }
+
+    bool Record(int slot, int mana, TimePoint now) {
+        return Ready(slot, mana, now) && MarkPreparedCast(slot, now);
     }
 
     void Reset() {
