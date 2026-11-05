@@ -20,9 +20,10 @@ using namespace Gothic_I_Classic;
 // user didn't also press an actual key bound to jump.
 // The original right-mouse state stays readable by our aiming code.
 namespace Gothic_I_Classic {
-    HOOK Ivk_PH_ProcessInputEvents PATCH(
+    auto& Ivk_PH_ProcessInputEvents = UnionCore::CreateHook(
         &zCInput_Win32::ProcessInputEvents,
-        &zCInput_Win32::PH_ProcessInputEvents
+        &zCInput_Win32::PH_ProcessInputEvents,
+        UnionCore::Hook_Auto
     );
 
     void zCInput_Win32::PH_ProcessInputEvents() {
