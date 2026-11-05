@@ -110,12 +110,60 @@ FUNC VOID PH_OnExpelliarmusHit()
     };
 };
 
+// Rictusempra: temporary comedy animation state, not permanent Berserk.
+// Using animations already shipped with Gothic 1; no extra files needed.
+FUNC VOID PH_OnRictusempraHit()
+{
+    if (Npc_IsPlayer(other))
+    {
+        if (!Npc_IsDead(self))
+        {
+            if (C_NpcIsHuman(self))
+            {
+                Npc_ClearAIQueue(self);
+                AI_StartState(self, ZS_PH_Rictusempra, 0, "");
+            };
+        };
+    };
+};
+
+FUNC VOID ZS_PH_Rictusempra()
+{
+    B_FullStop(self);
+    AI_PlayAni(self, "T_PSI_VICTIM");
+    AI_Wait(self, 0.8);
+    AI_PlayAni(self, "T_SEARCH");
+};
+
+FUNC INT ZS_PH_Rictusempra_Loop()
+{
+    if (Npc_GetStateTime(self) >= 4)
+    {
+        return LOOP_END;
+    };
+    AI_Wait(self, 0.5);
+    return LOOP_CONTINUE;
+};
+
+FUNC VOID ZS_PH_Rictusempra_End()
+{
+    AI_ContinueRoutine(self);
+};
+
 // A simple custom AI state for the comic death.
 // Gothic 1 has no ragdoll physics; this uses a known lightning-victim animation.
 FUNC INT ZS_PH_AvadaDeath()
 {
     Npc_ClearAIQueue(self);
-    AI_PlayAni(self, "T_STAND_2_LIGHTNING_VICTIM");
+    // Two existing Gothic 1 animations; future versions will add custom ones.
+    if (Hlp_Random(100) < 50)
+    {
+        AI_PlayAni(self, "T_STAND_2_LIGHTNING_VICTIM");
+    }
+    else
+    {
+        AI_PlayAni(self, "T_PSI_VICTIM");
+    };
     return LOOP_CONTINUE;
 };
 
