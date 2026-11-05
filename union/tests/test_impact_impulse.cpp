@@ -42,11 +42,18 @@ int main() {
     assert(closeHit.apply && closeHit.upward && !closeHit.outward);
     assert(closeHit.velocity.x == 0.0f && closeHit.velocity.z == 0.0f);
 
+    // Existing fast Gothic knockback is preserved — never slow the native
+    // simulation or overwrite a stronger Stormfist upward launch.
     auto fast = PlanImpact(ImpactKind::Bumbardo, {300, 900, 200},
                            caster, target, true, true);
-    assert(fast.apply && fast.velocity.y == 340.0f);
-    assert(std::sqrt(fast.velocity.x * fast.velocity.x +
-                     fast.velocity.z * fast.velocity.z) <= 220.01f);
+    assert(!fast.apply);
+    assert(fast.velocity.x == 300.0f && fast.velocity.y == 900.0f);
+    assert(fast.velocity.z == 200.0f);
+    auto rising = PlanImpact(ImpactKind::Bumbardo, {0, 900, 0},
+                             caster, target, true, true);
+    assert(rising.apply && !rising.upward && rising.outward);
+    assert(rising.velocity.y == 900.0f);
+    assert(rising.velocity.x == 155.0f);
 
     auto bad = PlanImpact(
         ImpactKind::Levicorpus, {std::numeric_limits<float>::quiet_NaN(), 0, 0},
