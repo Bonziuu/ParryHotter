@@ -57,6 +57,17 @@ class InstallTests(unittest.TestCase):
             0,
         )
 
+    def test_existing_v01_hero_gets_mage_overlay_once(self):
+        install(self.content)
+        hero_path = self.content / "Story" / "NPC" / "PC_Hero.d"
+        source = hero_path.read_text(encoding="latin-1")
+        source = source.replace('    Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");\\n', "")
+        hero_path.write_text(source, encoding="latin-1")
+        self.assertEqual(install(self.content), [hero_path])
+        fixed = hero_path.read_text(encoding="latin-1")
+        self.assertEqual(fixed.count('Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");'), 1)
+        self.assertEqual(install(self.content), [])
+
     def test_second_install_is_noop(self):
         install(self.content)
         self.assertEqual(install(self.content), [])
