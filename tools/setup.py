@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.install import PatchError, install
-from tools.model_asset import ModelAssetError, prepare_model, MODEL_PAGE
+from tools.model_asset import ModelAssetError, prepare_model, prepare_blender_project, MODEL_PAGE
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -196,6 +196,7 @@ def main() -> int:
     try:
         prepared = prepare_model(args.game, args.model_zip)
         print(f"Przygotowano zrodla modelu do konwersji: {prepared}")
+        prepare_blender_project(prepared)
     except (ModelAssetError, OSError, zipfile.BadZipFile) as exc:
         print(f"Nie udalo sie przygotowac modelu: {exc}")
         print(f"Opcjonalnie pobierz oryginalny ZIP tutaj: {MODEL_PAGE}")
