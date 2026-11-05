@@ -25,6 +25,15 @@ int main() {
     assert(cd.RemainingMs(2, t0) == 2500);
     assert(cd.RemainingMs(2, t0 + milliseconds(500)) == 2000);
     assert(!cd.Record(2, 200, t0 + milliseconds(500)));
+    // Gothic can consume the required mana *during* investment.
+    // A spell already prepared must still be allowed to finish at zero mana,
+    // while the UI disallows starting an unrelated new spell.
+    assert(!cd.Ready(0, 0, t0));
+    assert(cd.ReadyByTime(3, t0));
+    assert(cd.MarkPreparedCast(3, t0));
+    assert(!cd.ReadyByTime(3, t0 + milliseconds(400)));
+    assert(!cd.MarkPreparedCast(3, t0 + milliseconds(400)));
+    assert(cd.RemainingMs(3, t0 + milliseconds(400)) == 1500);
 
     // Other slots have independent cooldowns; energy required per spell.
     assert(cd.Ready(0, 3, t0));
