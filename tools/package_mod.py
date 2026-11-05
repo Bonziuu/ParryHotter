@@ -117,7 +117,7 @@ def build_mod(game: Path, vdfs_executable: Path | None = None) -> Path:
             "VDFName=ParryHotter.mod\n"
             "[FILES]\n"
             + "".join(item + "\n" for item in manifest)
-            "[EXCLUDE]\n"
+            + "[EXCLUDE]\n"
             "[INCLUDE]\n"
             "[ENDVDF]\n",
             encoding="ascii",
