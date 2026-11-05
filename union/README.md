@@ -31,6 +31,14 @@ Oryginalne Harry Potter 1/2 PC mają inne sterowanie (LPM do ładowania i zwolni
 
 **Stan:** kod natywnej DLL i testy automatyczne mogą przechodzić, ale działanie w grze musi zostać potwierdzone. W razie problemu użyj zwykłego profilu Gothic lub profilu DEV bez DLL.
 
+## Etap 4g — kolejność przycisków i pauza (DEV 0.12)
+
+Sterowanie wymaga teraz rzeczywistego przygotowania czaru przez PPM **przed** nowym naciśnięciem LPM. Jednoczesne PPM + LPM oraz LPM trzymany jeszcze przed PPM nie wyzwalają zaklęcia. Po zwolnieniu LPM, wciąż trzymając PPM, kolejny pojedynczy klik rzuca czar tylko na poprawny cel.
+
+Po przerwaniu gry menu, wczytywaniem, pauzą lub zapisem, przygotowanie zaklęcia zostaje anulowane. Zanim znów zaczniesz celować, **puść PPM i naciśnij go ponownie**. Nowe testy `union/tests/test_hud.cpp` obejmują przypadkowe kombinacje przycisków oraz powrót z menu przy obu wciśniętych klawiszach.
+
+Wcześniej zmiana slotu klawiszami 1–6 mogła próbować wywołać `ReadySpell` nawet po zablokowaniu celowania; to również poprawiono. Kontrolujemy wejście gry, ale faktyczna animacja i chwila wykonania `Spell_Cast` nadal wymagają testu na komputerze z Gothic 1.
+
 ## Etap 4f — celowanie zgodne ze środkiem ekranu (DEV 0.11)
 
 Promień z kamery rozpoznaje teraz **pierwszego NPC pod celownikiem**, bez wcześniejszego wymagania, by mechanizm focus Gothic 1 wybrał dokładnie tego samego NPC. Aby zachować natywny system zaklęć, tuż przed `Spell_Cast()` cel zostaje tymczasowo wskazany przez `oCNpc::SetFocusVob`. Odległość i ściany nadal ograniczają rzut, a martwe NPC nie są akceptowane.
