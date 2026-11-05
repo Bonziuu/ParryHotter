@@ -109,7 +109,7 @@ def main() -> int:
         symbols_upper = compiled.upper()
         for marker in (
             b"FLIPENDO", b"PH_RUNE_FLIPENDO", b"AVADA KEDAVRA",
-            b"PH_SELECTED_SPELL", b"PH_ONBUMBARDOHIT",
+            b"PH_SELECTED_SPELL", b"PH_UNION_LOADED", b"PH_ONBUMBARDOHIT",
             b"ZS_PH_LEVICORPUS"
         ):
             if marker not in symbols_upper:
