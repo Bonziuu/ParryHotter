@@ -47,7 +47,7 @@ def patch_hero(text: str) -> str:
     if HERO_MARK in text:
         if mage_overlay in text:
             return text
-        newline = "\\r\\n" if "\\r\\n" in text else "\\n"
+        newline = "\r\n" if "\r\n" in text else "\n"
         return text.replace(HERO_MARK, HERO_MARK + newline + "    " + mage_overlay, 1)
 
     found = re.search(r"(?is)\bINSTANCE\s+PC_Hero\s*\(\s*NPC_DEFAULT\s*\)\s*\{", text)
