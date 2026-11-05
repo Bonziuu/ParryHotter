@@ -75,6 +75,10 @@ def report(game: Path) -> str:
             ("[OK] " if b"ph_rune_flipendo" in data else "[UWAGA] ")
             + "Runa Flipendo w skompilowanym Gothic.dat"
         )
+        output.append(
+            ("[OK] " if b"ph_selected_spell" in data else "[UWAGA] ")
+            + "Mostek HUD/Daedalus PH_SELECTED_SPELL (brak: wykonaj Reparse Scripts)"
+        )
         if source.is_file() and dat.stat().st_mtime < source.stat().st_mtime:
             output.append("[UWAGA] Gothic.dat jest starszy niz ParryHotter.d — wykonaj Reparse")
     tex = case_path(game, "_work", "Data", "Textures")
