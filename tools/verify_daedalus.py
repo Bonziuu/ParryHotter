@@ -107,7 +107,11 @@ def main() -> int:
         # GDC normalizes symbol identifiers to uppercase in its output.
         # User-facing spell names must remain embedded as readable strings.
         symbols_upper = compiled.upper()
-        for marker in (b"FLIPENDO", b"PH_RUNE_FLIPENDO", b"AVADA KEDAVRA"):
+        for marker in (
+            b"FLIPENDO", b"PH_RUNE_FLIPENDO", b"AVADA KEDAVRA",
+            b"PH_SELECTED_SPELL", b"PH_ONBUMBARDOHIT",
+            b"ZS_PH_LEVICORPUS"
+        ):
             if marker not in symbols_upper:
                 raise PatchError(f"Compiled Gothic.dat missing marker {marker!r}")
         print(f"OK: Daedalus compiled Gothic.dat ({len(compiled)} bytes)")
