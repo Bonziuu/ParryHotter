@@ -7,6 +7,9 @@ on:
       - '.github/workflows/union-hud.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   state-and-sprites:
     runs-on: ubuntu-latest
@@ -58,3 +61,26 @@ jobs:
           name: ParryHotter-Union-G1-EXPERIMENTAL
           path: sdk/**/*.dll
           if-no-files-found: warn
+      - name: Prepare clearly labeled experimental G1 DLL
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path 'prerelease' -Force | Out-Null
+          Copy-Item 'sdk/UnionProject/G1 Release/UnionProject.dll' 'prerelease/ParryHotterHUD-G1.dll' -Force
+      - name: Publish experimental HUD DLL for one-click local test
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: hud-dev
+          name: 'Parry Hotter - HUD EXPERIMENTAL (Gothic 1)'
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          body: |
+            Gothic I Union DLL for private TESTING ONLY.
+            Not verified in Gothic engine. May need adjustment for particular
+            Steam builds and installed Union patches. Do not use with production
+            save games. See union/README.md for safe backup/testing.
+            Source code and HUD sprites are in this repository.
+          files: prerelease/ParryHotterHUD-G1.dll
+          fail_on_unmatched_files: true
