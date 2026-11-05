@@ -30,6 +30,9 @@ class PackagingTests(unittest.TestCase):
         self.subtitle.write_bytes(b"Polski OU test")
         self.vdfs = self.game / "GothicVDFS.exe"
         self.vdfs.write_bytes(b"not actually run")
+        self.hud_dll = self.game / "ParryHotterHUD-G1.dll"
+        self.hud_dll.write_bytes(b"MZ" + b"mock native DLL" * 100)
+
         (self.system / "ParryHotter.ini").write_text(
             "[INFO]\ntitle=Parry Hotter (DEV)\n"
             "[FILES]\nvdf=\n[OPTIONS]\nforce_parameters=-zreparse\n",
@@ -58,11 +61,17 @@ class PackagingTests(unittest.TestCase):
             vm = (stage / "build.vm").read_text()
             self.assertIn("_work/Data/Scripts/_compiled/Gothic.dat", vm)
             self.assertIn("_work/Data/Scripts/Content/Cutscene/Ou.bin", vm)
+            self.assertIn("System/Autorun/ParryHotterHUD-G1.dll", vm)
+            self.assertIn("_work/Data/Textures/PH_TARGET_RICTUSEMPRA.TGA", vm)
+            self.assertTrue((stage / "System" / "Autorun" / "ParryHotterHUD-G1.dll").is_file())
+            textures = list((stage / "_work" / "Data" / "Textures").glob("*.TGA"))
+            self.assertEqual(len(textures), 14)
+
             (stage / "ParryHotter.mod").write_bytes(b"mocked vdf content" * 80)
             return mock.Mock(returncode=0, stdout="ok", stderr="")
 
         with mock.patch("tools.package_mod.subprocess.run", side_effect=fake_builder):
-            result = build_mod(self.game, self.vdfs)
+            result = build_mod(self.game, self.vdfs, self.hud_dll)
         self.assertTrue(result.is_file())
         play = (self.system / "ParryHotter-PLAY.ini").read_text(encoding="latin-1")
         dev = (self.system / "ParryHotter.ini").read_text(encoding="latin-1")
