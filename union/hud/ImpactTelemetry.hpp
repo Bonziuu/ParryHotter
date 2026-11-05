@@ -28,7 +28,7 @@ public:
     void Note(ImpactEvent event) {
         const auto i = static_cast<unsigned>(event);
         if (i >= Size) return;
-        if (counts_[i] < std::numeric_limits<unsigned>::max())
+        if (counts_[i] < (std::numeric_limits<unsigned>::max)())
             ++counts_[i];
         last_ = event;
     }
