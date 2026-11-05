@@ -24,7 +24,7 @@ Oryginalne Harry Potter 1/2 PC mają inne sterowanie (LPM do ładowania i zwolni
 ## Etap 1 — kamera i sterowanie (v0.5 DEV)
 
 - Przy PPM kamera zbliża się do bohatera i przesuwa nad jego ramię. Zoom i offset przywracają poprzednie wartości po puszczeniu PPM, w czasie pauzy i przed opuszczeniem świata.
-- Wykrywanie celu odrzuca martwe i bardzo odległe NPC (około 19 metrów w jednostkach Gothica). Nadal jest to **natywny focus silnika** — nie dokładny raycast pojedynczego piksela.
+- Wykrywanie celu odrzuca martwe i odległe NPC (powyżej około 19 metrów). Dodatkowo używa **raycastu ze środka kamery**, aby symbol nie pojawiał się przez ściany lub poza centrum ekranu. NPC nadal musi być wykryty przez standardowy focus Gothica — to wariant prototypowy do testów.
 - W czasie ekwipunku, przejść między lokacjami i scenek przerywnikowych skrypt nie powinien przygotowywać ani rzucać czarów.
 - Poprawiono instalator: `Gothic2_Control=1` nie jest już wymuszane w globalnym `SystemPack.ini`. Jeśli stara wersja Parry Hotter wcześniej zmieniła ten klucz z 0 na 1, a istnieje kopia `.parryhotter-original`, poprzednia wartość jest bezpiecznie przywracana. `enableMouse=1` pozostaje wymagane.
 - Jednoczesne rozglądanie myszą i manipulacja różdżką korzystają z bazowej obsługi kamery Gothica. To nie jest jeszcze pełny swobodny obrót 1:1 z HP2. Finalna kamera powinna również obsługiwać obracanie postaci względem kamery.
@@ -54,7 +54,7 @@ Szablon SDK: https://github.com/Gratt-5r2/UnionProject
 
 - HUD i input nie są jeszcze przetestowane w uruchomionym Gothic I.
 - Ruch kamerą korzysta z istniejącego sterowania SystemPack; nie został przeniesiony oryginalny kod kamery Harry Potter 2.
-- Celowanie korzysta z focus NPC Gothic, nie precyzyjnego raycastu w pojedynczy piksel.
+- Celowanie korzysta z native focus NPC oraz promienia ze środka kamery; wymagane testy, czy bryła postaci Gothic prawidłowo reaguje na trafienia.
 - Przygotowanie zaklęcia używa natywnych animacji magii Gothic, nie własnej animacji Harry'ego z różdżką.
 - Brak konwersji modelu Harry z peleryną do działającego ASC, brak ragdolla i docelowej fizyki wyrzutu NPC.
 - Kompilator GothicVDFS i ładowanie DLL w grze wymagają rzeczywistego testu lokalnego.
