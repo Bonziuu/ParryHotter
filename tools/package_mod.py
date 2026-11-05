@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from tools.generate_hud_textures import generate as generate_hud_textures
+from tools.download_hud import HudDownloadError, fetch_verified_hud
 
 
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -75,7 +76,10 @@ def validate_compiled(game: Path) -> tuple[Path, Path]:
     return compiled, subtitle
 
 
-def build_mod(game: Path, vdfs_executable: Path | None = None) -> Path:
+def build_mod(
+    game: Path, vdfs_executable: Path | None = None,
+    hud_dll: Path | None = None,
+) -> Path:
     game = game.expanduser().resolve()
     if not (game / "System").is_dir():
         raise PackagingError(f"Nie znaleziono Gothic/System: {game}")
@@ -102,6 +106,19 @@ def build_mod(game: Path, vdfs_executable: Path | None = None) -> Path:
             "_work/Data/Scripts/_compiled/Gothic.dat",
             "_work/Data/Scripts/Content/Cutscene/Ou.bin"
         ]
+        # Load only inside ParryHotter.mod via Union virtual */Autorun.
+        # Never install an untested native plugin globally in Gothic/System.
+        dll = hud_dll
+        if dll is None:
+            dll = fetch_verified_hud(stage / "hud_download" / "ParryHotterHUD-G1.dll")
+        if not dll.is_file() or dll.read_bytes()[:2] != b"MZ":
+            raise PackagingError("Nieprawidlowy experimentalny DLL HUD Union")
+        plugin_rel = Path("System/Autorun/ParryHotterHUD-G1.dll")
+        plugin_dst = stage / plugin_rel
+        plugin_dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(dll, plugin_dst)
+        manifest.append(plugin_rel.as_posix())
+
         for sprite in generated_sprites:
             rel = Path("_work/Data/Textures") / sprite.name
             dst = stage / rel
@@ -161,10 +178,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build a separate ParryHotter.mod")
     parser.add_argument("--game", type=Path, default=DEFAULT_GAME)
     parser.add_argument("--vdfs", type=Path, help="Optional exact GothicVDFS.exe path")
+    parser.add_argument("--hud-dll", type=Path, help="For offline tests: local compiled G1 Union DLL")
     args = parser.parse_args()
     try:
-        result = build_mod(args.game, args.vdfs)
-    except (PackagingError, OSError, subprocess.TimeoutExpired) as error:
+        result = build_mod(args.game, args.vdfs, args.hud_dll)
+    except (PackagingError, HudDownloadError, OSError, subprocess.TimeoutExpired) as error:
         parser.exit(1, f"BLAD: {error}\n")
     print(f"Zbudowano mod: {result}")
     print("Odtad uruchamiaj 'Parry Hotter (PLAY)' w GothicStarter.")
