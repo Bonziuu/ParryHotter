@@ -32,7 +32,8 @@ class InstallTests(unittest.TestCase):
         )
         (self.content / "Magic" / "B_AssessMagic.d").write_text(
             'func void B_AssessMagic_ThunderBall()\n{\n    foo();\n};\n'
-            'func void B_AssessMagic_Breathofdeath()\n{\n    bar();\n};\n',
+            'func void B_AssessMagic_Breathofdeath()\n{\n    bar();\n};\n'
+            'func void B_AssessMagic_Berzerk()\n{\n    baz();\n};\n',
             encoding="latin-1",
         )
         (self.content / "Magic" / "Spells_Params.d").write_text(
