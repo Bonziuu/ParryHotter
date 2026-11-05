@@ -40,11 +40,9 @@ inline ImpactPlan PlanImpact(
         return plan;
 
     const float upwardSpeed = kind == ImpactKind::Levicorpus ? 165.0f : 285.0f;
-    if (ceilingClear) {
-        // Controlled knock-up. Never stack unlimited vertical impulses.
-        plan.velocity.y = currentVelocity.y > upwardSpeed
-                          ? currentVelocity.y : upwardSpeed;
-        if (plan.velocity.y > 340.0f) plan.velocity.y = 340.0f;
+    if (ceilingClear && currentVelocity.y < upwardSpeed) {
+        // Do not replace an already faster native Stormfist upward launch.
+        plan.velocity.y = upwardSpeed;
         plan.upward = true;
     } else {
         plan.velocity.y = currentVelocity.y;
@@ -54,8 +52,14 @@ inline ImpactPlan PlanImpact(
         const float dx = targetPos.x - attackerPos.x;
         const float dz = targetPos.z - attackerPos.z;
         const float d = std::sqrt(dx * dx + dz * dz);
-        if (std::isfinite(d) && d > 20.0f) {
-            // Maximum outward impulse 155 cm/s; limit total horizontal speed.
+        const float nativeSpeed = std::sqrt(
+            currentVelocity.x * currentVelocity.x +
+            currentVelocity.z * currentVelocity.z
+        );
+        if (std::isfinite(d) && d > 20.0f &&
+            nativeSpeed <= 220.0f) {
+            // Add up to 155 cm/s only to moderate native velocity; never
+            // overwrite an already faster native knockback.
             float vx = currentVelocity.x + dx / d * 155.0f;
             float vz = currentVelocity.z + dz / d * 155.0f;
             const float magnitude = std::sqrt(vx * vx + vz * vz);
