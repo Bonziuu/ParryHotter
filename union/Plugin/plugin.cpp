@@ -13,11 +13,35 @@
 #include "AimCamera.hpp"
 #include "SpellCooldown.hpp"
 #include "SpellImpactTag.hpp"
+#include "ImpactImpulse.hpp"
+#include <cmath>
 #include <chrono>
 #include <array>
 
 #ifdef __G1
 using namespace Gothic_I_Classic;
+
+// Custom damage hook has access to the real victim, attacker and spell ID.
+// Unlike moving a focused target on click, this only acts on a genuine hit.
+namespace {
+    void ApplyParryImpact(
+        oCNpc* victim, const oCNpc::oSDamageDescriptor& descriptor
+    );
+}
+
+namespace Gothic_I_Classic {
+    auto& Ivk_PH_OnDamage_Hit = UnionCore::CreateHook(
+        &oCNpc::OnDamage_Hit,
+        &oCNpc::PH_OnDamage_Hit,
+        UnionCore::Hook_Auto
+    );
+
+    void oCNpc::PH_OnDamage_Hit(oSDamageDescriptor& descriptor) {
+        // Native damage/collision/AI always has priority.
+        THISCALL(Ivk_PH_OnDamage_Hit)(descriptor);
+        ApplyParryImpact(this, descriptor);
+    }
+}
 
 // Gothic I hardcodes RMB as jump (GAME_SMOVE). Intercept input after
 // DirectInput processing, then clear that logical jump state only when the
@@ -76,6 +100,78 @@ namespace {
     ParryHotter::AimCamera gCamera;
     ParryHotter::SpellCooldown gCooldown;
     ParryHotter::SpellImpactTag gImpactTag;
+    oCNpc* gCastTarget = nullptr;
+    bool gImpactApplied = false;
+
+    void ClearCastTarget() {
+        if (gCastTarget) {
+            gCastTarget->Release();
+            gCastTarget = nullptr;
+        }
+        gImpactApplied = false;
+    }
+
+    bool Clearance(zCWorld* world, oCNpc* npc,
+                   const zVEC3& origin, const zVEC3& direction) {
+        if (!world) return false;
+        const int flags = zTRACERAY_STAT_POLY | zTRACERAY_VOB_BBOX |
+                          zTRACERAY_FIRSTHIT;
+        // The engine checks walls, ceilings and other VOB collision volumes.
+        return world->TraceRayNearestHit(
+            origin, direction, static_cast<zCVob*>(npc), flags
+        ) == 0;
+    }
+
+    void ApplyParryImpact(
+        oCNpc* victim, const oCNpc::oSDamageDescriptor& descriptor
+    ) {
+        if (!victim || victim == player || !player ||
+            victim != gCastTarget || gImpactApplied ||
+            victim->IsDead() || !victim->IsHuman()) return;
+        if (descriptor.pNpcAttacker != player ||
+            !(descriptor.dwFieldsValid & oCNpc::oEDamageDescFlag_SpellID))
+            return;
+        const auto now = ParryHotter::SpellImpactTag::Clock::now();
+        const int active = gImpactTag.Active(now);
+        const bool levi = active == 2 && descriptor.nSpellID == SPL_ICECUBE;
+        const bool bomb = active == 5 && descriptor.nSpellID == SPL_STORMFIST;
+        if (!levi && !bomb) return;
+
+        // ZenGin remains in control of falling, collisions and AI.
+        // Never enable physics on an NPC that did not already have it,
+        // and never disable gravity or teleport a person through geometry.
+        if (!victim->physicsEnabled) return;
+        zCRigidBody* body = victim->GetRigidBody();
+        zCWorld* world = victim->GetHomeWorld();
+        if (!body || !world || world != player->GetHomeWorld()) return;
+
+        const zVEC3 pos = victim->GetPositionWorld();
+        const zVEC3 caster = player->GetPositionWorld();
+        const bool up = Clearance(world, victim, pos + zVEC3(0, 75, 0),
+                                  zVEC3(0, 250, 0));
+        zVEC3 away(pos[0] - caster[0], 0, pos[2] - caster[2]);
+        bool outward = false;
+        if (away.Length_Sqr() > 400.0f) {
+            away.Normalize();
+            away *= zVEC3(180.0f);
+            outward = Clearance(world, victim, pos + zVEC3(0, 75, 0), away);
+        }
+        const zVEC3 current = victim->GetVelocity();
+        const ParryHotter::ImpactPlan plan = ParryHotter::PlanImpact(
+            levi ? ParryHotter::ImpactKind::Levicorpus
+                 : ParryHotter::ImpactKind::Bumbardo,
+            {current[0], current[1], current[2]},
+            {caster[0], caster[1], caster[2]},
+            {pos[0], pos[1], pos[2]},
+            up, outward
+        );
+        if (!plan.apply) return;
+        body->SetVelocity(zVEC3(
+            plan.velocity.x, plan.velocity.y, plan.velocity.z
+        ));
+        gImpactApplied = true; // no repeated impulses from damage-over-time
+    }
+
     std::array<zCView*, 6> gSlots{};
     std::array<zCView*, 6> gTargetIcons{};
     zCView* gSelection = nullptr;
@@ -281,6 +377,7 @@ namespace {
     }
 
     void ResetSelectedSpellForScript() {
+        ClearCastTarget();
         gImpactTag.Reset();
         if (!parser) return;
         zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
@@ -294,6 +391,14 @@ namespace {
         if (!parser || slot < 0 || slot >= 6) return;
         zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
         if (symbol) {
+            ClearCastTarget();
+            if (player) {
+                oCNpc* target = player->GetFocusNpc();
+                if (target && target != player && !target->IsDead()) {
+                    target->AddRef();
+                    gCastTarget = target;
+                }
+            }
             symbol->SetValue(slot + 1, 0);
             gImpactTag.MarkCast(slot, ParryHotter::SpellImpactTag::Clock::now());
         }
