@@ -376,6 +376,12 @@ namespace {
         gManaPrepared = false;
     }
 
+    void SetUnionPresence(bool enabled) {
+        if (!parser) return;
+        zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_UNION_LOADED"));
+        if (symbol) symbol->SetValue(enabled ? 1 : 0, 0);
+    }
+
     void ResetSelectedSpellForScript() {
         ClearCastTarget();
         gImpactTag.Reset();
@@ -485,12 +491,14 @@ namespace {
 // Standard Union DLL exports, called by engine event hooks in template.
 cexport void Game_Entry() {}
 cexport void Game_Init() {
+    SetUnionPresence(true);
     gController.Reset();
     gCooldown.Reset();
     gImpactTag.Reset();
 }
 cexport void Game_Exit() {
     ResetSelectedSpellForScript();
+    SetUnionPresence(false);
     gCamera.Restore(zCAICamera::current);
     if (gAiming) LowerWand();
     RemoveHud();
@@ -508,6 +516,7 @@ cexport void Game_LoadBegin_NewGame() {
 }
 cexport void Game_LoadEnd_NewGame() {
     ResetSelectedSpellForScript();
+    SetUnionPresence(true);
     gController.Reset();
     gCooldown.Reset();
 }
@@ -518,6 +527,7 @@ cexport void Game_LoadBegin_SaveGame() {
 }
 cexport void Game_LoadEnd_SaveGame() {
     ResetSelectedSpellForScript();
+    SetUnionPresence(true);
     gController.Reset();
     gCooldown.Reset();
 }
@@ -528,6 +538,7 @@ cexport void Game_LoadBegin_ChangeLevel() {
 }
 cexport void Game_LoadEnd_ChangeLevel() {
     ResetSelectedSpellForScript();
+    SetUnionPresence(true);
     gController.Reset();
     gCooldown.Reset();
 }
