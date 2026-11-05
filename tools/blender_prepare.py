@@ -39,6 +39,30 @@ def main():
         candidate = source / Path(bpy.path.abspath(img.filepath)).name
         if candidate.exists():
             img.filepath = str(candidate)
+    # Convert the FOUR original HP2 PNG textures into Gothic-readable TGAs.
+    # Use names that cannot accidentally replace base-game textures. All
+    # results stay under the local private folder, never in our GitHub repo.
+    converted_textures = []
+    for index in range(4):
+        png = source / f"skharrytex{index}.png"
+        if not png.is_file():
+            raise RuntimeError(f"Missing Harry texture: {png}")
+        image = bpy.data.images.load(str(png), check_existing=True)
+        target = source / f"PH_HARRY_TEX{index}.TGA"
+        image.filepath_raw = str(target)
+        image.file_format = "TARGA"
+        image.save()
+        if not target.is_file() or target.stat().st_size < 18:
+            raise RuntimeError(f"Texture conversion failed: {target}")
+        converted_textures.append(target.name)
+
+    for image in bpy.data.images:
+        image_name = Path(bpy.path.abspath(image.filepath)).stem.lower()
+        for index in range(4):
+            if image_name in (f"skharrytex{index}", f"ph_harry_tex{index}"):
+                image.filepath = str(source / f"PH_HARRY_TEX{index}.TGA")
+                break
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(destination))
     info = {
@@ -47,6 +71,7 @@ def main():
         "meshes": [{"name": m.name, "vertices": len(m.data.vertices)} for m in meshes],
         "armatures": [{"name": a.name, "bones": len(a.data.bones)} for a in rigs],
         "destination": str(destination),
+        "gothic_tga_textures": converted_textures,
         "status": "imported for manual skeleton retargeting; NOT installed in Gothic",
     }
     destination.with_suffix(".json").write_text(
