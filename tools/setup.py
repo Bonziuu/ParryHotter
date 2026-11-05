@@ -25,6 +25,7 @@ from tools.model_asset import ModelAssetError, prepare_model, prepare_blender_pr
 from tools.configure_mouse import configure_mouse
 from tools.generate_hud_textures import generate as generate_hud_textures
 from tools.visual_install import install_visual
+from tools.stage_harry_export import stage_export
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -221,6 +222,15 @@ def main() -> int:
         print(f"Nie udalo sie przygotowac modelu: {exc}")
         print(f"Opcjonalnie pobierz oryginalny ZIP tutaj: {MODEL_PAGE}")
         print("Uruchom ponownie: py -3 tools/model_asset.py --zip SCIEZKA_DO_ZIP")
+
+    # If an ASC was exported by Blender/KrxImpExp into the original-model
+    # folder, normalize material paths and stage it without further user input.
+    try:
+        if stage_export(args.game):
+            print("Znaleziono eksportowany model Gothic i przygotowano tekstury.")
+    except (PatchError, OSError) as exc:
+        print(f"Gotowy ASC nie przeszedl kontroli: {exc}")
+        print("Nie wprowadzam nieprawidlowego modelu do Gothic.")
 
     # The costume is enabled only if a valid local Gothic ASC export exists.
     # Missing or incomplete original HP2 resources never break the base mod.
