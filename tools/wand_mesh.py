@@ -92,6 +92,11 @@ def read_obj(path: Path) -> tuple[list[tuple[float, float, float]],
             (p[main] - bottom) * scale - 5.0,
         ) for p in verts
     ]
+    # Permuting (x, y, z) -> (x, z, y) is a reflection; reverse face order
+    # to retain outward-facing normals and avoid an invisible backface-culled
+    # wand when the original OBJ's longest axis happens to be Y.
+    if main == 1:
+        faces = [(a, c, b) for a, b, c in faces]
     return aligned, uvs, faces
 
 
