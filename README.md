@@ -1,8 +1,18 @@
 # Parry Hotter — Gothic 1 🪄
 
-**Wersja 0.2 DEV — automatyczny instalator polskich skryptów i prototypu sześciu zaklęć.**
+**Wersja 0.3 DEV — polskie skrypty, sześć run, sterowanie LPM i narzędzie do budowania osobnego .mod.**
 
 To nadal **prototyp źródłowy**, a nie kompletny mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic`, fizyki ragdoll ani własnego sterowania klikaniem myszką. Nie gwarantujemy działania wszystkich efektów — instalacja i parsowanie Gothic 1 na komputerze gracza nadal wymagają testów.
+
+## Co zmieniono w v0.3 (przed kolejnym testem)
+
+- **Rictusempra** nie uruchamia już zwykłego wielominutowego szału po trafieniu człowieka przez gracza. Zamiast tego uruchamia krótki stan animacji `T_PSI_VICTIM` i `T_SEARCH` (zastępcze animacje stockowe).
+- **Avada Kedavra** losuje jedną z dwóch dostępnych animacji przed obrażeniami śmiertelnymi. Nadal nie jest to ragdoll ani gotowy komediowy zestaw animacji.
+- **Mysz:** instalator ustawia `Gothic2_Control=1` w `SystemPack.ini` i `enableMouse=1` w `Gothic.ini`, o ile odpowiednie klucze istnieją. Oryginalne pliki zapisuje jako `.parryhotter-original`. Wybrany czar można rzucać przez LPM. **Rolka i osobne celowanie PPM nadal nie istnieją**.
+- **Osobny mod:** po poprawnej kompilacji `Gothic.dat` przez GothicStarter_mod uruchom `ZBUDUJ_MOD_PO_REPARSE.bat`. Wymaga narzędzia `GothicVDFS.exe` z ModKitu. Tworzy `Data/ModVDF/ParryHotter.mod` i `System/ParryHotter-PLAY.ini`. Profil PLAY nie ma `-zreparse`, więc korzysta z pakietu. Nadal nie zawiera skórki Harry'ego.
+- **Testy:** GitHub Actions sprawdza instalację na Windows/Linux, prawdziwy polski zestaw Unified-PL, skrypty Pythona i kompilację Daedalus przez niezależny kompilator (wynik tego ostatniego testu należy sprawdzić w Actions).
+
+Nadal **brak gotowego skórkowanego modelu ASC, modelu różdżki, wtyczki fizyki NPC i prawdziwej integracji w silniku**. Nie traktuj wersji DEV jako gotowego wydania; nie zastępuje ona testów w Gothic 1.
 
 ## Instalacja możliwie najprostsza (Steam Windows)
 
