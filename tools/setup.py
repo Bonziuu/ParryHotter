@@ -198,11 +198,11 @@ def main() -> int:
     sprites = generate_hud_textures(sprite_folder)
     print(f"Wygenerowano {len(sprites)} oryginalnych ikon HUD: {sprite_folder}")
 
-    print("Konfiguruje klik LPM do rzucania wybranego czaru...")
+    print("Konfiguruje mysz dla trybu PPM + LPM (Union)...")
     try:
         files = configure_mouse(args.game)
         if files:
-            print("Ustawienia myszy zapisane z kopia .parryhotter-original")
+            print("Ustawienia myszy zaktualizowane; oryginaly zapisane w .parryhotter-original")
         else:
             print("Sterowanie: brak zgodnych kluczy INI lub opcje juz wlaczone.")
     except OSError as exc:
