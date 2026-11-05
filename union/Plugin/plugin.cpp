@@ -15,6 +15,33 @@
 #ifdef __G1
 using namespace Gothic_I_Classic;
 
+// Gothic I hardcodes RMB as jump (GAME_SMOVE). Intercept input after
+// DirectInput processing, then clear that logical jump state only when the
+// user didn't also press an actual key bound to jump.
+// The original right-mouse state stays readable by our aiming code.
+namespace Gothic_I_Classic {
+    HOOK Ivk_PH_ProcessInputEvents PATCH(
+        &zCInput_Win32::ProcessInputEvents,
+        &zCInput_Win32::PH_ProcessInputEvents
+    );
+
+    void zCInput_Win32::PH_ProcessInputEvents() {
+        THISCALL(Ivk_PH_ProcessInputEvents)();
+        if (!this->GetMouseButtonPressedRight()) return;
+        if (this->GetState(GAME_SMOVE) == 0.0f) return;
+
+        zCArray<unsigned short> jumpBindings;
+        this->GetBinding(GAME_SMOVE, jumpBindings);
+        for (int i = 0; i < jumpBindings.GetNumInList(); ++i) {
+            const int key = jumpBindings[i];
+            // A physical keyboard jump is still allowed during aiming.
+            if (key < MIN_MOUSE_BTNS_AND_CODES && this->KeyPressed(key))
+                return;
+        }
+        this->SetState(GAME_SMOVE, 0);
+    }
+}
+
 namespace {
     constexpr int kSize = 510;     // 8192x8192 resolution-independent coords
     constexpr int kSpace = 92;
