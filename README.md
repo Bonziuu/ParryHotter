@@ -1,6 +1,6 @@
 # Parry Hotter — Gothic 1 🪄
 
-**Wersja 0.7 DEV — polskie skrypty, sześć run, HUD Union, kamera zza ramienia, różdżka i ulepszone reakcje NPC.**
+**Wersja 0.8 DEV — sześć run, stały HUD Union, kamera zza ramienia, różdżka oraz eksperymentalne impulsy przy trafieniach NPC.**
 
 To nadal **prototyp źródłowy**, a nie kompletnie sprawdzony mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic` ani fizyki ragdoll. Sterowanie PPM + LPM i HUD mają skompilowaną wtyczkę Union, ale nie zostały jeszcze potwierdzone w uruchomionym Gothic 1.
 
@@ -26,7 +26,7 @@ Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utwor
 - **Bumbardo Maximus:** dodatkowa animacja wstrząsu `T_STAND_2_LIGHTNING_VICTIM` po zdarzeniu trafienia człowieka; podstawowy odrzut wykonuje nadal silnik Stormfist. Nie ma jeszcze własnej fizyki wyrzutu wysoko w powietrze ani obracania NPC.
 - **Bez podwójnych efektów:** instalator aktualizuje starsze haki w `B_AssessMagic.d` bez dokładania drugiej reakcji. Sprawdzane testami regresji.
 - **Brak zmiany globalnych obrażeń:** wcześniejsze wersje ustawiały `SPL_DAMAGE_BREATHOFDEATH=1` wszystkim NPC. Nowy instalator nie narusza tej stałej. Jeśli stara wersja zmieniła ją, a istnieje kopia `.parryhotter.bak`, oryginalna wartość jest przywracana. W efekcie Avada Kedavra może zabić słabszego NPC wcześniej niż zakończy się animacja — osobny system śmierci pozostaje do zrobienia.
-- **Ochrona przed starymi skryptami:** pakowanie `.mod` wymaga obecności `PH_SELECTED_SPELL` w `Gothic.dat`, a `SPRAWDZ_PARRY_HOTTER.bat` raportuje jego brak. Po aktualizacji trzeba zrobić **Reparse Scripts**. Krótkie okno identyfikacji czaru wygasa po 7 sekundach i resetuje się przy zmianie świata.
+- **Ochrona przed starymi skryptami:** pakowanie `.mod` wymaga obecności `PH_SELECTED_SPELL` w `Gothic.dat`, a `SPRAWDZ_PARRY_HOTTER.bat` raportuje jego brak. Po aktualizacji trzeba zrobić **Reparse Scripts** i przebudować lokalne `.mod` przed testem profilu PLAY. Krótkie okno identyfikacji czaru wygasa po 7 sekundach i resetuje się przy zmianie świata.
 - **Tryb DEV bez Union:** dla kompatybilności nadal używa dawnych warunków `Npc_IsPlayer(other)`. Pełna kontrola slotów wymaga profilu **PLAY** z wtyczką, nie samej podmiany run.
 
 **Weryfikacja:** testy Pythona, polskich skryptów i niezależnego kompilatora Daedalus; kompilacja Union na Windows. Brak testu działania w rzeczywistym silniku Gothic 1.
@@ -93,7 +93,7 @@ Powstał **eksperymentalny plugin Gothic I Union** i osobne oryginalne tekstury 
 
 Brakuje nadal fizycznej konwersji modelu Harry'ego w pelerynie do ASC oraz zaawansowanej fizyki NPC. Nie traktuj prototypu jako kompletnej gry.
 
-## Archiwum zmian w v0.3 (nieaktualne sterowanie, zastąpione nowszymi etapami)
+## Archiwum v0.3 (nieaktualne: informacje poniżej nie są instrukcją dla v0.8)
 
 - **Rictusempra** nie uruchamia już zwykłego wielominutowego szału po trafieniu człowieka przez gracza. Zamiast tego uruchamia krótki stan animacji `T_PSI_VICTIM` i `T_SEARCH` (zastępcze animacje stockowe).
 - **Avada Kedavra** losuje jedną z dwóch dostępnych animacji przed obrażeniami śmiertelnymi. Nadal nie jest to ragdoll ani gotowy komediowy zestaw animacji.
