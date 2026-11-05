@@ -256,9 +256,10 @@ FUNC VOID ZS_PH_AvadaDeath_End()
 {
 };
 
-// Called in B_AssessMagic_Breathofdeath when Parry is the caster.
-// Low default Breath of Death damage (configured by installer) prevents
-// early normal death before the comedy animation can finish.
+// Invoked for Parry's Avada effect, guarded by the selected spell slot.
+// The original Gothic BreathOfDeath damage is NOT reduced globally.
+// Weak NPCs may die from the native effect before the comic animation;
+// a truly independent spell implementation is needed to guarantee timing.
 FUNC VOID PH_OnAvadaHit()
 {
     if (Npc_IsPlayer(other))
