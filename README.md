@@ -46,3 +46,9 @@ Model Harry'ego z Komnaty Tajemnic **nie jest dołączony**. Jego pozyskanie do 
 - ROADMAP.md — plan kolejnych etapów.
 
 Oryginalna gra, ModKit i zasoby innych gier nie są tu dystrybuowane.
+
+## Problemy: niemieckie napisy, runy lub model postaci
+
+Przeczytaj instrukcję **[PL-PROBLEMY](docs/PL-PROBLEMY.md)**. Opisuje użycie polskich skryptów Unified-PL, obsługę run klawiszami Gothic 1 oraz ograniczenia importu modelu Harry'ego.
+
+Po pobraniu nowej wersji repozytorium uruchom ponownie instalator z poprzednią ścieżką `--content`, w GothicStarter_mod wybierz reparse i rozpocznij nową grę. Aktualizacja instalatora dodaje overlay animacji `Humans_Mage.mds` do bohatera także wtedy, gdy v0.1 był już zainstalowany.
