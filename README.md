@@ -4,6 +4,12 @@
 
 To nadal **prototyp źródłowy**, a nie kompletny mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic`, fizyki ragdoll ani własnego sterowania klikaniem myszką. Nie gwarantujemy działania wszystkich efektów — instalacja i parsowanie Gothic 1 na komputerze gracza nadal wymagają testów.
 
+## Etap 1/5: kamera i celowanie (wersja developerska)
+
+**Wprowadzono:** płynne przybliżenie kamery do ramienia przy PPM, powrót do pierwotnych parametrów po zwolnieniu przycisku, filtrowanie martwych i oddalonych NPC, raycast ze środka kamery (zasłony/ściany), wyłączenie interakcji podczas ekwipunku i cutscenek oraz poprawkę konfiguracji, która nie wymusza już globalnego `Gothic2_Control=1`. Dodano testy C++ kamery i nowe testy przywracania ustawień myszy. **Działanie w silniku Gothic 1 nadal niepotwierdzone.**
+
+Następny etap: model Harry'ego z peleryną i różdżką — wymaga prawdziwego FBX i konwersji do zgodnego z Gothikiem modelu ASC.
+
 ## Sterowanie z Komnaty Tajemnic — HUD / Union v0.4 DEV (nowe)
 
 Powstał **eksperymentalny plugin Gothic I Union** i osobne oryginalne tekstury do paska zaklęć. Szczegóły, status i ograniczenia: **[union/README.md](union/README.md)**.
