@@ -11,6 +11,7 @@ import shutil
 import urllib.error
 import urllib.request
 import zipfile
+import zlib
 from pathlib import Path
 
 from tools.wand_mesh import WandError, generate_wand
