@@ -4,8 +4,10 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
+import shutil
 
-from tools.model_asset import EXPECTED, ModelAssetError, prepare_model
+from tools.model_asset import EXPECTED, ModelAssetError, prepare_model, discover_model_zip
 
 
 class ModelAssetTests(unittest.TestCase):
@@ -40,6 +42,23 @@ class ModelAssetTests(unittest.TestCase):
         with self.assertRaises(ModelAssetError):
             prepare_model(self.game, self.zip_path)
         self.assertFalse((self.game / "_work").exists())
+
+    def test_model_archive_autodiscovered_in_downloads(self):
+        downloads = Path(self.temp.name) / "Downloads"
+        downloads.mkdir()
+        copied = downloads / "295618.zip"
+        shutil.copy2(self.zip_path, copied)
+        with mock.patch("tools.model_asset.Path.home", return_value=Path(self.temp.name)):
+            self.assertEqual(discover_model_zip(self.game / "ParryHotter-private" / "HP2-Harry-original"), copied)
+            stage = prepare_model(self.game)
+        self.assertTrue((stage / "skharrymesh.fbx").exists())
+
+    def test_invalid_downloads_archive_is_ignored(self):
+        downloads = Path(self.temp.name) / "Downloads"
+        downloads.mkdir()
+        (downloads / "295618.zip").write_bytes(b"not a zip")
+        with mock.patch("tools.model_asset.Path.home", return_value=Path(self.temp.name)):
+            self.assertIsNone(discover_model_zip(self.game / "ParryHotter-private" / "HP2-Harry-original"))
 
     def test_unknown_game_folder_fails(self):
         with self.assertRaises(ModelAssetError):
