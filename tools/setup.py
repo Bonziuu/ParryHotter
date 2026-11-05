@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.install import PatchError, install
 from tools.model_asset import ModelAssetError, prepare_model, prepare_blender_project, prepare_visual_first, MODEL_PAGE
 from tools.configure_mouse import configure_mouse
+from tools.generate_hud_textures import generate as generate_hud_textures
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -190,6 +191,12 @@ def main() -> int:
         print(f"BLAD INSTALACJI: {exc}", file=sys.stderr)
         print("Sprawdz sciezke i polaczenie internetowe; nie uruchamiaj gry.", file=sys.stderr)
         return 1
+
+    # Icons are built from original source art with Python's standard library.
+    # Raw TGA files are used in development and packed into .mod for release.
+    sprite_folder = args.game / "_work" / "Data" / "Textures"
+    sprites = generate_hud_textures(sprite_folder)
+    print(f"Wygenerowano {len(sprites)} oryginalnych ikon HUD: {sprite_folder}")
 
     print("Konfiguruje klik LPM do rzucania wybranego czaru...")
     try:
