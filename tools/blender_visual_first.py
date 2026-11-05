@@ -124,6 +124,10 @@ def closest_body(mesh, gothic_mesh):
     """Transfer stock Gothic bone weights to new mesh by nearest surface."""
     import bpy
 
+    # Remove every HP2-specific bone weight: its Unreal skeleton cannot
+    # animate on a ZenGin human rig. Retain only the Gothic reference groups.
+    for group in list(mesh.vertex_groups):
+        mesh.vertex_groups.remove(group)
     # Target must share vertex group names for DataTransfer of vertex weights.
     for vg in gothic_mesh.vertex_groups:
         if mesh.vertex_groups.get(vg.name) is None:
@@ -139,6 +143,15 @@ def closest_body(mesh, gothic_mesh):
     mesh.select_set(True)
     bpy.context.view_layer.objects.active = mesh
     bpy.ops.object.modifier_apply(modifier=modifier.name)
+    # Never save a character that would stand in T-pose. A costume needs
+    # almost all vertices weighted to Gothic bones after the transfer.
+    vertices = list(mesh.data.vertices)
+    assigned = sum(1 for v in vertices if any(g.weight > 0.0001 for g in v.groups))
+    if not vertices or assigned < int(0.85 * len(vertices)):
+        raise RuntimeError(
+            f"Gothic skin transfer incomplete for {mesh.name}: "
+            f"{assigned}/{len(vertices)} vertices weighted"
+        )
 
 
 def anchor_cape(mesh, rig):
@@ -178,11 +191,14 @@ def main():
 
     import bpy
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    # Load Gothic rig, keep body hidden in both viewport and render.
+    # Its vertex weights remain available to the DataTransfer modifier.
     # Load Gothic rig, keep body invisible as a weight transfer reference.
     rig, sources = copy_rig_from_blend(bpy, gothic_reference)
     gothic_body = max(sources, key=lambda x: len(x.data.vertices))
     for obj in sources:
         obj.hide_render = True
+        obj.hide_set(True)
 
     before = set(bpy.data.objects)
     bpy.ops.import_scene.fbx(filepath=str(harry_fbx), use_image_search=True)
@@ -214,6 +230,17 @@ def main():
         skin_to_gothic(obj, rig)
         obj.name = "PH_HARRY_CAPE" if cape else "PH_HARRY_" + obj.name
     rig.name = "PH_GOTHIC_HUMAN_RIG"
+
+    # Repoint imported FBX materials to the four TGA textures prepared
+    # locally by blender_prepare.py. Gothic reads TGA, not the original PNG.
+    for image in bpy.data.images:
+        name = Path(bpy.path.abspath(image.filepath)).stem.lower()
+        for i in range(4):
+            if name in (f"skharrytex{i}", f"ph_harry_tex{i}"):
+                tex = harry_fbx.parent / f"PH_HARRY_TEX{i}.TGA"
+                if tex.is_file():
+                    image.filepath = str(tex)
+                break
 
     out.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(out))
