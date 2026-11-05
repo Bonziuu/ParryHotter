@@ -45,7 +45,7 @@ class InstallTests(unittest.TestCase):
 
     def test_install_creates_scripts_and_preserves_originals(self):
         changed = install(self.content)
-        self.assertEqual(len(changed), 5)
+        self.assertEqual(len(changed), 4)
         self.assertTrue((self.content / "Magic" / "ParryHotter.d").is_file())
         hero = (self.content / "Story" / "NPC" / "PC_Hero.d").read_text(encoding="latin-1")
         self.assertIn('name = "Parry Hotter"', hero)
@@ -62,6 +62,9 @@ class InstallTests(unittest.TestCase):
         self.assertIn("PH_IsSelectedSpell(5)", hooks)
         self.assertIn("PH_IsSelectedSpell(6)", hooks)
         self.assertIn("PH_OnBumbardoHit();", hooks)
+        params = (self.content / "Magic" / "Spells_Params.d").read_text("latin-1")
+        self.assertIn("SPL_DAMAGE_BREATHOFDEATH = 100;", params)
+        self.assertFalse((self.content / "Magic" / "Spells_Params.d.parryhotter.bak").exists())
         self.assertIn("Magic\\ParryHotter.d", (self.content / "Gothic.src").read_text(encoding="latin-1"))
         self.assertEqual(
             (self.content / "Story" / "NPC" / "PC_Hero.d.parryhotter.bak").read_text(encoding="latin-1").count("Parry Hotter"),
@@ -126,12 +129,32 @@ class InstallTests(unittest.TestCase):
         )
         self.assertEqual(install(self.content), [])
 
+    def test_restores_old_breath_damage_only_with_proven_backup(self):
+        path = self.content / "Magic" / "Spells_Params.d"
+        backup = path.with_name(path.name + ".parryhotter.bak")
+        backup.write_text("const int SPL_DAMAGE_BREATHOFDEATH = 100; // original\\n",
+                          encoding="latin-1")
+        path.write_text("const int SPL_DAMAGE_BREATHOFDEATH = 1; // legacy Parry\\n",
+                        encoding="latin-1")
+        install(self.content)
+        self.assertIn("SPL_DAMAGE_BREATHOFDEATH = 100;",
+                      path.read_text("latin-1"))
+        self.assertEqual(install(self.content), [])
+
+    def test_preserves_custom_breath_damage_without_backup(self):
+        path = self.content / "Magic" / "Spells_Params.d"
+        path.write_text("const int SPL_DAMAGE_BREATHOFDEATH = 70; // custom\\n",
+                        encoding="latin-1")
+        install(self.content)
+        self.assertIn("SPL_DAMAGE_BREATHOFDEATH = 70;",
+                      path.read_text("latin-1"))
+
     def test_second_install_is_noop(self):
         install(self.content)
         self.assertEqual(install(self.content), [])
 
     def test_dry_run_does_not_change_disk(self):
-        self.assertEqual(len(install(self.content, dry_run=True)), 5)
+        self.assertEqual(len(install(self.content, dry_run=True)), 4)
         self.assertFalse((self.content / "Magic" / "ParryHotter.d").exists())
         self.assertFalse((self.content / "Gothic.src.parryhotter.bak").exists())
 
