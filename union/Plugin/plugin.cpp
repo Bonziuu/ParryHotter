@@ -10,6 +10,7 @@
 #include "plugin.h"
 #include "UnionAfx.h"
 #include "SpellHudState.hpp"
+#include "AimCamera.hpp"
 #include <array>
 
 #ifdef __G1
@@ -69,6 +70,7 @@ namespace {
     }};
 
     ParryHotter::Controller gController;
+    ParryHotter::AimCamera gCamera;
     std::array<zCView*, 6> gSlots{};
     std::array<zCView*, 6> gTargetIcons{};
     zCView* gSelection = nullptr;
@@ -161,7 +163,11 @@ namespace {
     bool HasValidNpcTarget() {
         if (!player) return false;
         oCNpc* focus = player->GetFocusNpc();
-        return focus && focus != player && !focus->IsDead();
+        if (!focus || focus == player || focus->IsDead()) return false;
+        // Native focus already checks visibility. Do not show a spell marker
+        // on an extremely distant NPC just because focus is still cached.
+        const float distance = player->GetDistanceToVob(*focus);
+        return distance >= 0.0f && distance < 1900.0f;
     }
 
     // Use the native spellbook so that mana, target rules and Gothic visual FX
@@ -187,10 +193,16 @@ namespace {
     }
 
     void GameTick() {
-        const bool gameplay = (ogame && screen && player && zinput);
+        const bool gameplay =
+            ogame && screen && player && zinput &&
+            !ogame->inLoadSaveGame && !ogame->inLevelChange &&
+            !player->openinventory &&
+            (!zCAICamera::current || !zCAICamera::current->inCutsceneMode);
         if (!gameplay) {
+            gCamera.Restore(zCAICamera::current);
             if (gAiming) LowerWand();
             gController.Step({});
+            ShowTarget(false, gActiveSlot);
             return;
         }
         int hotkey = 0;
@@ -209,6 +221,10 @@ namespace {
         ShowHud();
         ShowSelection(out.selected);
         ShowTarget(out.targetSymbolVisible, out.selected);
+        // Keep the Gothic camera's own mouse rotation and collision.
+        // Our helper only moves the distance/shoulder for spell targeting,
+        // and restores previous values after PPM is released.
+        gCamera.Update(zCAICamera::current, out.aiming);
 
         if (out.stopAim) {
             LowerWand();
@@ -229,22 +245,25 @@ namespace {
 // Standard Union DLL exports, called by engine event hooks in template.
 cexport void Game_Entry() {}
 cexport void Game_Init() { gController.Reset(); }
-cexport void Game_Exit() { RemoveHud(); }
+cexport void Game_Exit() {
+    gCamera.Restore(zCAICamera::current);
+    RemoveHud();
+}
 cexport void Game_PreLoop() {}
 cexport void Game_Loop() { GameTick(); }
 cexport void Game_PostLoop() {}
 cexport void Game_MenuLoop() {}
 cexport void Game_SaveBegin() {}
 cexport void Game_SaveEnd() {}
-cexport void Game_LoadBegin_NewGame() { RemoveHud(); }
+cexport void Game_LoadBegin_NewGame() { gCamera.Forget(); RemoveHud(); }
 cexport void Game_LoadEnd_NewGame() { gController.Reset(); }
-cexport void Game_LoadBegin_SaveGame() { RemoveHud(); }
+cexport void Game_LoadBegin_SaveGame() { gCamera.Forget(); RemoveHud(); }
 cexport void Game_LoadEnd_SaveGame() { gController.Reset(); }
-cexport void Game_LoadBegin_ChangeLevel() { RemoveHud(); }
+cexport void Game_LoadBegin_ChangeLevel() { gCamera.Forget(); RemoveHud(); }
 cexport void Game_LoadEnd_ChangeLevel() { gController.Reset(); }
 cexport void Game_LoadBegin_Trigger() {}
 cexport void Game_LoadEnd_Trigger() {}
-cexport void Game_Pause() {}
+cexport void Game_Pause() { gCamera.Restore(zCAICamera::current); }
 cexport void Game_Unpause() {}
 cexport void Game_DefineExternals() {}
 cexport void Game_ApplyOptions() {}
