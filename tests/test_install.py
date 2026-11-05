@@ -58,6 +58,25 @@ class InstallTests(unittest.TestCase):
             0,
         )
 
+    def test_starting_gothic_mage_robe_on_realistic_player_visual(self):
+        hero_path = self.content / "Story" / "NPC" / "PC_Hero.d"
+        original = hero_path.read_text(encoding="latin-1")
+        original = original.replace(
+            "    CreateInvItem(self, ItWr_Fire_Letter_01);",
+            '    Mdl_SetVisual (self,"HUMANS.MDS");\n'
+            '    Mdl_SetVisualBody (self,"hum_body_Naked0", 4, 1,'
+            ' "Hum_Head_Pony", 9, 0, -1);\n'
+            '    CreateInvItem(self, ItWr_Fire_Letter_01);',
+        )
+        hero_path.write_text(original, encoding="latin-1")
+        install(self.content)
+        changed = hero_path.read_text(encoding="latin-1")
+        self.assertIn('"Hum_Head_Pony", 9, 0, KDF_ARMOR_L);', changed)
+        self.assertEqual(changed.count("KDF_ARMOR_L"), 1)
+        self.assertEqual(install(self.content), [])
+        # Preserve the unchanged test NPC's visual and item definitions.
+        self.assertIn('INSTANCE PC_Hero_L2', changed)
+
     def test_existing_v01_hero_gets_mage_overlay_once(self):
         install(self.content)
         hero_path = self.content / "Story" / "NPC" / "PC_Hero.d"
