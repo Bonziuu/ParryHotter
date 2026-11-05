@@ -51,6 +51,14 @@ def validate_converted_assets(root: Path) -> tuple[Path, ...]:
         raise PatchError("ASC has an unexpected file size")
     if b"*GEOMOBJECT" not in data.upper() or b"*MESH" not in data.upper():
         raise PatchError("PH_HARRY.ASC is not a Gothic/3ds Max ASCII mesh")
+    # A static ASCII mesh may render in a T-pose. Gothic armor needs the
+    # actual skin-weight map exported by KrxImpExp (vertex -> Bip01 bones).
+    upper = data.upper()
+    if b"*MESH_SOFTSKINVERTS" not in upper or b"BIP01" not in upper:
+        raise PatchError(
+            "PH_HARRY.ASC lacks Gothic skin weights (*MESH_SOFTSKINVERTS/Bip01). "
+            "Export an animated model mesh, not a static object."
+        )
     # Reference textures by exact safe names, not arbitrary absolute paths.
     for match in re.findall(rb'\*BITMAP\s+"([^"]+)"', data, re.IGNORECASE):
         name = match.replace(b"\\", b"/").split(b"/")[-1].decode("latin-1")
