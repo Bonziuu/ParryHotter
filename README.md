@@ -1,12 +1,25 @@
 # Parry Hotter — Gothic 1 🪄
 
-**Wersja 0.8 DEV — sześć run, stały HUD Union, kamera zza ramienia, różdżka oraz eksperymentalne impulsy przy trafieniach NPC.**
+**Wersja 0.9 DEV — stały HUD Union, kamera zza ramienia, różdżka, impulsy po trafieniach i kontrola lądowania NPC.**
 
 To nadal **prototyp źródłowy**, a nie kompletnie sprawdzony mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic` ani fizyki ragdoll. Sterowanie PPM + LPM i HUD mają skompilowaną wtyczkę Union, ale nie zostały jeszcze potwierdzone w uruchomionym Gothic 1.
 
 ### Diagnostyka bez ręcznego szukania plików
 
 Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utworzy `ParryHotter_diagnostics.txt` obok pliku BAT i sprawdzi w trybie tylko do odczytu: profile DEV/PLAY, plik `.mod`, kompilację zaklęć, polskie OU.bin, wszystkie 14 ikon oraz ustawienia myszy. Możesz przesłać raport, jeśli gra zachowuje się nieprawidłowo. Raport **nie sprawdza rozgrywki**, fizyki ani ruchów Harry'ego.
+
+## Etap 4d: bezpieczne lądowanie i powrót do AI (DEV 0.9)
+
+W `union/hud/FlightRecovery.hpp` dodałem mały automat stanów, który obserwuje NPC po udanym fizycznym impulsie. Nie wstrzymuje NPC ani nie nadpisuje jego pozycji.
+
+- Przy trafieniu rozpoczęta zostaje obserwacja na **maksymalnie 4,6 sekundy**. Wykrycie lądowania wymaga co najmniej 450 ms od wybicia, dwóch kolejnych potwierdzeń kontaktu z podłożem oraz niewielkiej prędkości pionowej. Odbicie od ziemi resetuje licznik.
+- Wykrywanie podłoża korzysta z krótkiego promienia pionowo w dół, sprawdzenia odległości do podłogi i **normalnej wielokąta**. Pionowe ściany nie są zaliczane jako podłoże.
+- Po lądowaniu **Bumbardo Maximus** próbuje jednorazowo uruchomić istniejącą animację `T_STAND_2_LIGHTNING_VICTIM`. **Levicorpus** pozostaje pod kontrolą swojego stanu `ZS_PH_Levicorpus` (powrót do rutyny po około czterech sekundach).
+- Jeśli NPC umrze, zmieni się świat, gra zacznie zapis lub upłynie limit czasu, referencja jest zwalniana. Nie wymuszamy ani animacji, ani dodatkowej fizyki w tych przypadkach.
+- Podczas zapisu wtyczka tymczasowo ustawia `PH_UNION_LOADED=0`, żeby zapis później otwarty bez pluginu nie zapamiętał nieprawidłowo trybu PLAY. Po zapisie wraca do trybu Union.
+- Nowy test `union/tests/test_flight_recovery.cpp` sprawdza normalne lądowanie, odbicia, przedwczesne wyzwolenie, przerwanie i timeout.
+
+**Nie jest gotowe:** obrócenie NPC głową w dół, animacje własnego szkieletu HP2 oraz pełny ragdoll. W prawdziwym Gothic 1 fizyczne wybicie nadal zależy od tego, czy NPC ma aktywny `zCRigidBody`; w przeciwnym razie zachowa tylko bazowe reakcje skryptowe.
 
 ## Etap 4c: pierwsza fizyka trafień NPC (eksperymentalna)
 
