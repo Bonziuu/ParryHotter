@@ -61,6 +61,22 @@ def main() -> int:
         for original in (b"Value_\xd6l", b"Value_\xc3\x96l"):
             raw = raw.replace(original, b"Value_Oel")
         misc.write_bytes(raw)
+        # GDC's built-in engine profile expects Gothic 2's C_NPC size
+        # (800 bytes), while genuine Gothic 1 uses 552 bytes. Extend
+        # the temporary CI-only class with 62 dummy 4-byte integers so
+        # that we can statically validate code. Never deploy this DAT.
+        classes = content / "_intern" / "Classes.d"
+        class_data = classes.read_bytes()
+        start = class_data.upper().find(b"CLASS C_NPC")
+        end = class_data.find(b"};", start)
+        if start < 0 or end < 0:
+            raise PatchError("Could not locate Gothic 1 C_NPC for CI-only class padding")
+        class_data = (
+            class_data[:end]
+            + b"    VAR INT _CI_ONLY_GDC_COMPAT[62];\r\n"
+            + class_data[end:]
+        )
+        classes.write_bytes(class_data)
         install(content)
         get_compiler(compiler)
         # The independent compiler is not the game itself: explicitly load the
