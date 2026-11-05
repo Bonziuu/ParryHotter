@@ -14,6 +14,7 @@
 #include "SpellCooldown.hpp"
 #include "SpellImpactTag.hpp"
 #include "ImpactImpulse.hpp"
+#include "FlightRecovery.hpp"
 #include <cmath>
 #include <chrono>
 #include <array>
@@ -102,6 +103,27 @@ namespace {
     ParryHotter::SpellImpactTag gImpactTag;
     oCNpc* gCastTarget = nullptr;
     bool gImpactApplied = false;
+    ParryHotter::FlightRecovery gFlightRecovery;
+    oCNpc* gFlightTarget = nullptr;
+    bool gFlightIsBumbardo = false;
+
+    void ClearFlight() {
+        gFlightRecovery.Reset();
+        if (gFlightTarget) {
+            gFlightTarget->Release();
+            gFlightTarget = nullptr;
+        }
+        gFlightIsBumbardo = false;
+    }
+
+    void BeginFlight(oCNpc* victim, bool bumbardo) {
+        ClearFlight();
+        if (!victim) return;
+        victim->AddRef();
+        gFlightTarget = victim;
+        gFlightIsBumbardo = bumbardo;
+        gFlightRecovery.Start(ParryHotter::FlightRecovery::Clock::now());
+    }
 
     void ClearCastTarget() {
         if (gCastTarget) {
@@ -169,7 +191,55 @@ namespace {
         body->SetVelocity(zVEC3(
             plan.velocity.x, plan.velocity.y, plan.velocity.z
         ));
+        BeginFlight(victim, bomb);
         gImpactApplied = true; // no repeated impulses from damage-over-time
+    }
+
+    bool NearSolidFloor(oCNpc* npc) {
+        if (!npc) return false;
+        zCWorld* world = npc->GetHomeWorld();
+        if (!world) return false;
+        const zVEC3 pos = npc->GetPositionWorld();
+        const zVEC3 origin = pos + zVEC3(0, 65, 0);
+        const zVEC3 down(0, -180, 0);
+        const int flags = zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
+        if (!world->TraceRayNearestHit(
+                origin, down, static_cast<zCVob*>(npc), flags))
+            return false;
+        const zVEC3 hit = world->traceRayReport.foundIntersection;
+        // A steep wall is not a landing surface. Use the floor directly
+        // under the NPC, not the endpoint of a distant ray.
+        if (world->traceRayReport.foundPolyNormal[1] < 0.50f) return false;
+        const float height = pos[1] - hit[1];
+        return height > -8.0f && height < 27.0f;
+    }
+
+    void UpdateFlight(ParryHotter::FlightRecovery::TimePoint now) {
+        if (!gFlightRecovery.Active()) return;
+        oCNpc* npc = gFlightTarget;
+        const bool valid = npc && player && !npc->IsDead() &&
+                           npc->GetHomeWorld() == player->GetHomeWorld();
+        const float vertical = valid ? npc->GetVelocity()[1] : 0.0f;
+        const bool floor = valid && NearSolidFloor(npc);
+        const auto result = gFlightRecovery.Step(now, valid, floor, vertical);
+        if (result == ParryHotter::FlightResult::Landed) {
+            // Use an existing short Gothic one-shot animation. Do not
+            // override the 4s Levicorpus state; it recovers via Daedalus.
+            if (gFlightIsBumbardo && npc && !npc->IsDead()) {
+                zCModel* model = npc->GetModel();
+                if (model) {
+                    model->StartAni(
+                        zSTRING("T_STAND_2_LIGHTNING_VICTIM"),
+                        zCModel::zMDL_STARTANI_DEFAULT
+                    );
+                }
+            }
+        }
+        if (result == ParryHotter::FlightResult::Landed ||
+            result == ParryHotter::FlightResult::Cancelled ||
+            result == ParryHotter::FlightResult::TimedOut) {
+            ClearFlight();
+        }
     }
 
     std::array<zCView*, 6> gSlots{};
@@ -383,6 +453,7 @@ namespace {
     }
 
     void ResetSelectedSpellForScript() {
+        ClearFlight();
         ClearCastTarget();
         gImpactTag.Reset();
         if (!parser) return;
@@ -446,6 +517,7 @@ namespace {
         auto out = gController.Step(input);
 
         const auto now = ParryHotter::SpellCooldown::Clock::now();
+        UpdateFlight(now);
         if (gImpactTag.Expired(now)) ResetSelectedSpellForScript();
         const int mana = player->GetAttribute(NPC_ATR_MANA);
         ShowHud();
