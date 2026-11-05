@@ -40,15 +40,39 @@ def patch_source(text: str) -> str:
     return text[:match.start()] + "Magic\\ParryHotter.d" + newline + text[match.start():]
 
 
+def patch_hero_temporary_robe(text: str) -> str:
+    """Equip a STOCK Gothic I mage robe visually; not the original Harry mesh.
+
+    Limited to the PC_Hero instance. No copy of 3D assets is required.
+    Preserve hair and head, original human skeleton and hitboxes.
+    """
+    found = re.search(r"(?is)\\bINSTANCE\\s+PC_Hero\\s*\\(\\s*NPC_DEFAULT\\s*\\)\\s*\\{", text)
+    if found is None:
+        raise PatchError("PC_Hero.d: PC_Hero instance missing for appearance")
+    next_hero = re.search(r"(?im)^\\s*INSTANCE\\s+PC_Hero_\\w+\\s*\\(", text[found.end():])
+    end = found.end() + next_hero.start() if next_hero else len(text)
+    section = text[found.start():end]
+    pattern = r"(?is)(Mdl_SetVisualBody\\s*\\(\\s*self\\s*,[^;]*?,\\s*)(-1|KDF_ARMOR_L)(\\s*\\)\\s*;)"
+    matches = list(re.finditer(pattern, section))
+    if len(matches) != 1:
+        raise PatchError("PC_Hero.d: expected one standard Mdl_SetVisualBody call")
+    appearance = matches[0]
+    if appearance.group(2).upper() == "KDF_ARMOR_L":
+        return text
+    replacement = appearance.group(1) + "KDF_ARMOR_L" + appearance.group(3)
+    section = section[:appearance.start()] + replacement + section[appearance.end():]
+    return text[:found.start()] + section + text[end:]
+
+
 def patch_hero(text: str) -> str:
     # Existing v0.1 installations must be upgraded, too. The mage overlay
     # supplies the human spellcasting animation set used by Gothic 1 mages.
     mage_overlay = 'Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");'
     if HERO_MARK in text:
-        if mage_overlay in text:
-            return text
-        newline = "\r\n" if "\r\n" in text else "\n"
-        return text.replace(HERO_MARK, HERO_MARK + newline + "    " + mage_overlay, 1)
+        if mage_overlay not in text:
+            newline = "\\r\\n" if "\\r\\n" in text else "\\n"
+            text = text.replace(HERO_MARK, HERO_MARK + newline + "    " + mage_overlay, 1)
+        return patch_hero_temporary_robe(text)
 
     found = re.search(r"(?is)\bINSTANCE\s+PC_Hero\s*\(\s*NPC_DEFAULT\s*\)\s*\{", text)
     if found is None:
@@ -90,7 +114,8 @@ def patch_hero(text: str) -> str:
         "",
     ]
     section = section[:closing] + newline.join(addon) + section[closing:]
-    return text[:found.start()] + section + text[end:]
+    patched = text[:found.start()] + section + text[end:]
+    return patch_hero_temporary_robe(patched)
 
 
 def add_hit_hook(text: str, function: str, invocation: str) -> str:
