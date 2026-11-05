@@ -1,4 +1,4 @@
-# Parry Hotter — stan prac (Gothic I, prototyp DEV 0.6)
+# Parry Hotter — stan prac (Gothic I, prototyp DEV 0.7)
 
 ## Zrobione i przetestowane automatycznie
 
@@ -21,9 +21,12 @@
 - [x] Model 3DS/TGA różdżki z oryginalnego lokalnego OBJ HP2 lub fallback generowany automatycznie, dołączony do lokalnego `.mod` (testy i kompilacja DLL).
 - [ ] **Sprawdzić w grze** mocowanie różdżki do `ZS_RIGHTHAND` podczas PPM, pozycję i animacje; własne animacje ładowania niegotowe.
 - [ ] Weryfikacja w rzeczywistym Gothic I i jego parserze oraz pakowanie przez GothicVDFS.exe użytkownika.
-- [ ] Rzeczywiste efekty 6 zaklęć: lewitacja głową w dół, fizyka wybuchu, taniec, rozbrojenie, niestandardowa animacja śmierci.
+- [ ] Rzeczywiste efekty 6 zaklęć: lewitacja głową w dół, fizyka wybuchu/obrót w powietrzu, taniec, pełne rozbrojenie, niestandardowa animacja śmierci bez naruszania bazowego balansu.
 - [x] Wstępne koszty many i osobne cooldowny 6 zaklęć, z przygaszaniem niedostępnych slotów i testami C++ (test w rzeczywistej grze wciąż potrzebny).
 - [x] Prototyp Levicorpus: krótki, niedający obrażeń stan NPC, zamiast domyślnego 9-sekundowego zamrożenia (jeszcze bez uniesienia i obrotu 3D).
+- [x] Zdarzenia trafień rozpoznają wybrany slot przez `PH_SELECTED_SPELL` (Union → Daedalus), a starsze haki są bezpiecznie aktualizowane bez dublowania.
+- [x] Bumbardo: dodatkowy, krótki wstrząs człowieka przy trafieniu ponad natywny Stormfist (nie jest to jeszcze wyrzut z ragdollem).
+- [x] Koniec globalnego osłabienia BreathOfDeath; stare kopie wartości służą do przywrócenia oryginału.
 - [ ] Dźwięki, błyski, pozostałe animacje i usunięcie konfliktów 1–6 z bazowym interfejsem gry.
 - [ ] Docelowe sterowanie swobodną kamerą z HP2 (obrót postaci i celowanie bez przeskoków).
 - [ ] Jeden instalator wykonujący **również** bezobsługową kompilację ASC i .mod po legalnym pozyskaniu lokalnych źródeł.
