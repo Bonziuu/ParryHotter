@@ -19,6 +19,8 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_hud.cpp -o /tmp/parry_hud_test
           /tmp/parry_hud_test
+          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_camera.cpp -o /tmp/parry_camera_test
+          /tmp/parry_camera_test
       - name: Generate and validate original 32-bit Gothic TGA icons
         run: |
           python tools/generate_hud_textures.py --out /tmp/ph_icons
@@ -46,6 +48,7 @@ jobs:
           git clone --depth 1 https://github.com/Gratt-5r2/UnionProject.git sdk
           Copy-Item 'union/Plugin/plugin.cpp' 'sdk/UnionProject/Plugin/plugin.cpp' -Force
           Copy-Item 'union/hud/SpellHudState.hpp' 'sdk/UnionProject/Plugin/SpellHudState.hpp' -Force
+          Copy-Item 'union/hud/AimCamera.hpp' 'sdk/UnionProject/Plugin/AimCamera.hpp' -Force
           Copy-Item 'union/userapi/zCInput_Win32.inl' 'sdk/UnionProject/GothicAPI/Gothic_UserAPI/zCInput_Win32.inl' -Force
       - name: Build native G1 Release / Win32 DLL
         shell: pwsh
