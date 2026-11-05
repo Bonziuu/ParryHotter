@@ -31,6 +31,16 @@ Oryginalne Harry Potter 1/2 PC mają inne sterowanie (LPM do ładowania i zwolni
 
 **Stan:** kod natywnej DLL i testy automatyczne mogą przechodzić, ale działanie w grze musi zostać potwierdzone. W razie problemu użyj zwykłego profilu Gothic lub profilu DEV bez DLL.
 
+## Etap 4d — wykrywanie lądowania (DEV 0.9)
+
+Wtyczka obserwuje NPC najwyżej przez 4,6 sekundy **po skutecznym impulsie `zCRigidBody`**. Wykrycie bezpiecznego podłoża wymaga promienia od NPC w dół, normalnej wielokąta, małej odległości i stabilnej prędkości pionowej w dwóch kolejnych klatkach (po co najmniej 450 ms od trafienia). Dopiero wtedy Bumbardo próbuje uruchomić `T_STAND_2_LIGHTNING_VICTIM` jako krótką reakcję na lądowanie.
+
+Levicorpus nie otrzymuje drugiej animacji po lądowaniu, bo `ZS_PH_Levicorpus` ma własny limit około czterech sekund i powrót do rutyny. Jeśli NPC umrze, zmieni się świat, nastąpi zapis albo minie 4,6 sekundy, wtyczka usuwa obserwację; nigdy nie wyłącza grawitacji, nie teleportuje NPC i nie wymusza upadku.
+
+**Zapis/zewnętrzny profil:** podczas zapisu `PH_UNION_LOADED` jest przejściowo zerowane, a po zapisie przywracane. Dzięki temu stare zapisy mogą zostać otwarte w profilu DEV bez DLL. Wymaga ponownego **Reparse Scripts** i przebudowania `.mod` po pobraniu v0.9.
+
+**Stan:** testy C++ i kompilacja Win32 nie stanowią dowodu działania animacji w ZenGin. Dodatkowy impuls i obserwacja lądowania są nieaktywne dla NPC bez już aktywnego natywnego `zCRigidBody`; wówczas działają tylko dotychczasowe animacje Daedalusa.
+
 ## Mostek zdarzeń trafienia do Daedalusa (DEV 0.7)
 
 HUD Union zapisuje numer ostatniego **rzucanego** zaklęcia w `PH_SELECTED_SPELL` (1–6), odczytywanym przez `B_AssessMagic.d`. Dzięki temu trafienia od Levicorpus, Rictusempra, Expelliarmus, Bumbardo i Avada mogą być rozpoznawane odrębnie od czarów bazowych, które używają tych samych identyfikatorów ZenGin. Tag wygasa po 7 sekundach i jest czyszczony przy zmianie świata; to rozwiązanie prototypowe dla pojedynczego ostatnio rzuconego zaklęcia — nie obsługuje idealnie wielu pocisków jednocześnie.
