@@ -15,6 +15,8 @@
 #include "SpellImpactTag.hpp"
 #include "ImpactImpulse.hpp"
 #include "FlightRecovery.hpp"
+#include "ImpactTelemetry.hpp"
+#include <cstdio>
 #include <cmath>
 #include <chrono>
 #include <array>
@@ -103,6 +105,56 @@ namespace {
     ParryHotter::SpellImpactTag gImpactTag;
     oCNpc* gCastTarget = nullptr;
     bool gImpactApplied = false;
+    bool gImpactAttempted = false;
+    ParryHotter::ImpactTelemetry gTelemetry;
+    bool gDiagnosticVisible = false;
+    bool gDiagnosticDirty = true;
+    zCView* gDiagnosticPanel = nullptr;
+
+    void NoteImpact(ParryHotter::ImpactEvent event) {
+        gTelemetry.Note(event);
+        gDiagnosticDirty = true;
+    }
+
+    void HideDiagnostics() {
+        if (gDiagnosticPanel) {
+            if (screen) screen->RemoveItem(gDiagnosticPanel);
+            delete gDiagnosticPanel;
+            gDiagnosticPanel = nullptr;
+        }
+        gDiagnosticDirty = true;
+    }
+
+    void DrawDiagnostics() {
+        if (!screen || !gDiagnosticVisible) {
+            HideDiagnostics();
+            return;
+        }
+        if (!gDiagnosticDirty) return;
+        HideDiagnostics();
+        gDiagnosticPanel = new zCView(220, 420, 5850, 1200);
+        screen->InsertItem(gDiagnosticPanel);
+        char title[220]{};
+        char stats[240]{};
+        char causes[260]{};
+        std::snprintf(title, sizeof(title),
+                      "PARRY HOTTER - F10: ukryj diagnostyke");
+        std::snprintf(stats, sizeof(stats),
+                      "Trafienia: %u / impulsy: %u / ladowania: %u",
+                      gTelemetry.Get(ParryHotter::ImpactEvent::Recognized),
+                      gTelemetry.Get(ParryHotter::ImpactEvent::Launched),
+                      gTelemetry.Get(ParryHotter::ImpactEvent::Landed));
+        std::snprintf(causes, sizeof(causes),
+                      "Fizyka wyl.: %u / brak RB: %u / przeszkoda: %u",
+                      gTelemetry.Get(ParryHotter::ImpactEvent::NoNativePhysics),
+                      gTelemetry.Get(ParryHotter::ImpactEvent::NoRigidBody),
+                      gTelemetry.Get(ParryHotter::ImpactEvent::NoClearance));
+        gDiagnosticPanel->Print(30, 20, zSTRING(title));
+        gDiagnosticPanel->Print(30, 250, zSTRING(stats));
+        gDiagnosticPanel->Print(30, 490, zSTRING(causes));
+        gDiagnosticDirty = false;
+    }
+
     ParryHotter::FlightRecovery gFlightRecovery;
     oCNpc* gFlightTarget = nullptr;
     bool gFlightIsBumbardo = false;
@@ -131,6 +183,7 @@ namespace {
             gCastTarget = nullptr;
         }
         gImpactApplied = false;
+        gImpactAttempted = false;
     }
 
     bool Clearance(zCWorld* world, oCNpc* npc,
@@ -158,14 +211,29 @@ namespace {
         const bool levi = active == 2 && descriptor.nSpellID == SPL_ICECUBE;
         const bool bomb = active == 5 && descriptor.nSpellID == SPL_STORMFIST;
         if (!levi && !bomb) return;
+        if (gImpactAttempted) return;
+        // One diagnostic outcome per real spell hit, even if damage-over-time
+        // reports the same impact again. Never spam the HUD with duplicates.
+        gImpactAttempted = true;
+        NoteImpact(ParryHotter::ImpactEvent::Recognized);
 
         // ZenGin remains in control of falling, collisions and AI.
         // Never enable physics on an NPC that did not already have it,
         // and never disable gravity or teleport a person through geometry.
-        if (!victim->physicsEnabled) return;
+        if (!victim->physicsEnabled) {
+            NoteImpact(ParryHotter::ImpactEvent::NoNativePhysics);
+            return;
+        }
         zCRigidBody* body = victim->GetRigidBody();
+        if (!body) {
+            NoteImpact(ParryHotter::ImpactEvent::NoRigidBody);
+            return;
+        }
         zCWorld* world = victim->GetHomeWorld();
-        if (!body || !world || world != player->GetHomeWorld()) return;
+        if (!world || world != player->GetHomeWorld()) {
+            NoteImpact(ParryHotter::ImpactEvent::WrongWorld);
+            return;
+        }
 
         const zVEC3 pos = victim->GetPositionWorld();
         const zVEC3 caster = player->GetPositionWorld();
@@ -187,11 +255,15 @@ namespace {
             {pos[0], pos[1], pos[2]},
             up, outward
         );
-        if (!plan.apply) return;
+        if (!plan.apply) {
+            NoteImpact(ParryHotter::ImpactEvent::NoClearance);
+            return;
+        }
         body->SetVelocity(zVEC3(
             plan.velocity.x, plan.velocity.y, plan.velocity.z
         ));
         BeginFlight(victim, bomb);
+        NoteImpact(ParryHotter::ImpactEvent::Launched);
         gImpactApplied = true; // no repeated impulses from damage-over-time
     }
 
@@ -224,6 +296,7 @@ namespace {
         const bool floor = valid && NearSolidFloor(npc);
         const auto result = gFlightRecovery.Step(now, valid, floor, vertical);
         if (result == ParryHotter::FlightResult::Landed) {
+            NoteImpact(ParryHotter::ImpactEvent::Landed);
             // Use an existing short Gothic one-shot animation. Do not
             // override the 4s Levicorpus state; it recovers via Daedalus.
             if (gFlightIsBumbardo && npc && !npc->IsDead()) {
@@ -236,6 +309,10 @@ namespace {
                 }
             }
         }
+        if (result == ParryHotter::FlightResult::Cancelled)
+            NoteImpact(ParryHotter::ImpactEvent::Interrupted);
+        if (result == ParryHotter::FlightResult::TimedOut)
+            NoteImpact(ParryHotter::ImpactEvent::TimedOut);
         if (result == ParryHotter::FlightResult::Landed ||
             result == ParryHotter::FlightResult::Cancelled ||
             result == ParryHotter::FlightResult::TimedOut) {
