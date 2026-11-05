@@ -11,6 +11,8 @@
 #include "UnionAfx.h"
 #include "SpellHudState.hpp"
 #include "AimCamera.hpp"
+#include "SpellCooldown.hpp"
+#include <chrono>
 #include <array>
 
 #ifdef __G1
@@ -71,6 +73,7 @@ namespace {
 
     ParryHotter::Controller gController;
     ParryHotter::AimCamera gCamera;
+    ParryHotter::SpellCooldown gCooldown;
     std::array<zCView*, 6> gSlots{};
     std::array<zCView*, 6> gTargetIcons{};
     zCView* gSelection = nullptr;
@@ -79,6 +82,7 @@ namespace {
     int gShownTargetSlot = -1;
     int gActiveSlot = 0;
     bool gAttached = false;
+    std::array<int, 6> gSlotDimmed{{-1, -1, -1, -1, -1, -1}};
     zCModel* gWandModel = nullptr;
     zCModelNodeInst* gWandSocket = nullptr;
     zCVisual* gWandVisual = nullptr;
@@ -160,6 +164,7 @@ namespace {
         gShownTargetSlot = -1;
         gActiveSlot = 0;
         gAiming = false;
+        gSlotDimmed.fill(-1);
         gController.Reset();
     }
 
@@ -171,6 +176,17 @@ namespace {
             screen->InsertItem(gSelection);
             screen->InsertItem(gReticle);
             gAttached = true;
+        }
+    }
+
+    void ShowSlotAvailability(int mana, ParryHotter::SpellCooldown::TimePoint now) {
+        for (int i = 0; i < 6; ++i) {
+            const int dim = gCooldown.Ready(i, mana, now) ? 0 : 1;
+            if (gSlots[i] && gSlotDimmed[i] != dim) {
+                // Visual availability, never removes an icon from HUD.
+                gSlots[i]->SetTransparency(dim ? 145 : 0);
+                gSlotDimmed[i] = dim;
+            }
         }
     }
 
@@ -244,11 +260,12 @@ namespace {
         gAiming = false;
     }
 
-    void CastAtFocusedNpc() {
-        if (!player || !HasValidNpcTarget()) return;
+    bool CastAtFocusedNpc() {
+        if (!player || !HasValidNpcTarget()) return false;
         oCMag_Book* spellbook = player->GetSpellBook();
-        if (!spellbook) return;
+        if (!spellbook) return false;
         spellbook->Spell_Cast();
+        return true;
     }
 
     void GameTick() {
@@ -277,7 +294,10 @@ namespace {
         ParryHotter::Input input{true, hotkey, right, left, target};
         auto out = gController.Step(input);
 
+        const auto now = ParryHotter::SpellCooldown::Clock::now();
+        const int mana = player->GetAttribute(oCNpc::NPC_ATR_MANA);
         ShowHud();
+        ShowSlotAvailability(mana, now);
         ShowSelection(out.selected);
         ShowTarget(out.targetSymbolVisible, out.selected);
         // Keep the Gothic camera's own mouse rotation and collision.
@@ -294,19 +314,26 @@ namespace {
         if (out.aiming && gAiming) {
             AttachWand(); // Model may have changed with a clothing swap.
         }
-        if (out.aiming && gAiming && player->GetSpellBook()) {
-            // Gothic itself decides mana investment and cast readiness.
+        if (out.aiming && gAiming && player->GetSpellBook() &&
+            gCooldown.Ready(out.selected, mana, now)) {
+            // Mana is deducted by Gothic, never by the cooldown controller.
             player->GetSpellBook()->Spell_Invest();
         }
-        if (out.cast && gAiming) {
-            CastAtFocusedNpc();
+        if (out.cast && gAiming && gCooldown.Ready(out.selected, mana, now)) {
+            if (CastAtFocusedNpc()) {
+                gCooldown.Record(out.selected, mana, now);
+                ShowSlotAvailability(player->GetAttribute(oCNpc::NPC_ATR_MANA), now);
+            }
         }
     }
 } // anonymous namespace
 
 // Standard Union DLL exports, called by engine event hooks in template.
 cexport void Game_Entry() {}
-cexport void Game_Init() { gController.Reset(); }
+cexport void Game_Init() {
+    gController.Reset();
+    gCooldown.Reset();
+}
 cexport void Game_Exit() {
     gCamera.Restore(zCAICamera::current);
     if (gAiming) LowerWand();
@@ -323,19 +350,28 @@ cexport void Game_LoadBegin_NewGame() {
     gCamera.Forget();
     RemoveHud();
 }
-cexport void Game_LoadEnd_NewGame() { gController.Reset(); }
+cexport void Game_LoadEnd_NewGame() {
+    gController.Reset();
+    gCooldown.Reset();
+}
 cexport void Game_LoadBegin_SaveGame() {
     if (gAiming) LowerWand();
     gCamera.Forget();
     RemoveHud();
 }
-cexport void Game_LoadEnd_SaveGame() { gController.Reset(); }
+cexport void Game_LoadEnd_SaveGame() {
+    gController.Reset();
+    gCooldown.Reset();
+}
 cexport void Game_LoadBegin_ChangeLevel() {
     if (gAiming) LowerWand();
     gCamera.Forget();
     RemoveHud();
 }
-cexport void Game_LoadEnd_ChangeLevel() { gController.Reset(); }
+cexport void Game_LoadEnd_ChangeLevel() {
+    gController.Reset();
+    gCooldown.Reset();
+}
 cexport void Game_LoadBegin_Trigger() {}
 cexport void Game_LoadEnd_Trigger() {}
 cexport void Game_Pause() { gCamera.Restore(zCAICamera::current); }
