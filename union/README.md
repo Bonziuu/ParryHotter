@@ -31,6 +31,14 @@ Oryginalne Harry Potter 1/2 PC mają inne sterowanie (LPM do ładowania i zwolni
 
 **Stan:** kod natywnej DLL i testy automatyczne mogą przechodzić, ale działanie w grze musi zostać potwierdzone. W razie problemu użyj zwykłego profilu Gothic lub profilu DEV bez DLL.
 
+## Etap 4f — celowanie zgodne ze środkiem ekranu (DEV 0.11)
+
+Promień z kamery rozpoznaje teraz **pierwszego NPC pod celownikiem**, bez wcześniejszego wymagania, by mechanizm focus Gothic 1 wybrał dokładnie tego samego NPC. Aby zachować natywny system zaklęć, tuż przed `Spell_Cast()` cel zostaje tymczasowo wskazany przez `oCNpc::SetFocusVob`. Odległość i ściany nadal ograniczają rzut, a martwe NPC nie są akceptowane.
+
+Pomocniczy panel **F10** ma nowy wiersz „Cel” z powodem odmowy rzutu (przeszkoda, martwa postać, brak kamery lub księgi magii, przekroczony zasięg). Pozwala odróżnić problem celowania od problemu z natywną fizyką.
+
+**Test w silniku nadal konieczny:** musimy sprawdzić, jak Gothic I interpretuje `SetFocusVob` przy przygotowanych zaklęciach oraz czy przybliżenie kamery i środek promienia działają razem na prawdziwej mapie.
+
 ## Etap 4e — diagnostyka fizyki w samej grze (DEV 0.10)
 
 Naciśnij **F10** podczas testowej rozgrywki w profilu PLAY. Pojawi się pomocniczy panel liczący:
