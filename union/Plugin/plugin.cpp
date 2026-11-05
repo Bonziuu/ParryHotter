@@ -278,10 +278,26 @@ namespace {
         gManaPrepared = false;
     }
 
-    bool CastAtFocusedNpc() {
+    void ResetSelectedSpellForScript() {
+        if (!parser) return;
+        zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
+        if (symbol) symbol->SetValue(0, 0);
+    }
+
+    void SyncSelectedSpellForScript(int slot) {
+        // This symbol comes from the locally compiled ParryHotter.d.
+        // The Daedalus hit handlers use it to distinguish our 6 runes from
+        // the vanilla spells that temporarily share the same spell IDs.
+        if (!parser || slot < 0 || slot >= 6) return;
+        zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
+        if (symbol) symbol->SetValue(slot + 1, 0);
+    }
+
+    bool CastAtFocusedNpc(int slot) {
         if (!player || !HasValidNpcTarget()) return false;
         oCMag_Book* spellbook = player->GetSpellBook();
         if (!spellbook) return false;
+        SyncSelectedSpellForScript(slot);
         spellbook->Spell_Cast();
         return true;
     }
@@ -345,7 +361,7 @@ namespace {
         }
         if (out.cast && gAiming && gManaPrepared &&
             gCooldown.ReadyByTime(out.selected, now)) {
-            if (CastAtFocusedNpc()) {
+            if (CastAtFocusedNpc(out.selected)) {
                 gCooldown.MarkPreparedCast(out.selected, now);
                 gManaPrepared = false;
                 ShowSlotAvailability(player->GetAttribute(NPC_ATR_MANA), now);
@@ -377,6 +393,7 @@ cexport void Game_LoadBegin_NewGame() {
     RemoveHud();
 }
 cexport void Game_LoadEnd_NewGame() {
+    ResetSelectedSpellForScript();
     gController.Reset();
     gCooldown.Reset();
 }
@@ -386,6 +403,7 @@ cexport void Game_LoadBegin_SaveGame() {
     RemoveHud();
 }
 cexport void Game_LoadEnd_SaveGame() {
+    ResetSelectedSpellForScript();
     gController.Reset();
     gCooldown.Reset();
 }
@@ -395,6 +413,7 @@ cexport void Game_LoadBegin_ChangeLevel() {
     RemoveHud();
 }
 cexport void Game_LoadEnd_ChangeLevel() {
+    ResetSelectedSpellForScript();
     gController.Reset();
     gCooldown.Reset();
 }
