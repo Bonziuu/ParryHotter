@@ -6,8 +6,9 @@ import zipfile
 from pathlib import Path
 from unittest import mock
 import shutil
+import io
 
-from tools.model_asset import EXPECTED, ModelAssetError, prepare_model, discover_model_zip
+from tools.model_asset import EXPECTED, ModelAssetError, prepare_model, discover_model_zip, download_asset
 
 
 class ModelAssetTests(unittest.TestCase):
@@ -59,6 +60,24 @@ class ModelAssetTests(unittest.TestCase):
         (downloads / "295618.zip").write_bytes(b"not a zip")
         with mock.patch("tools.model_asset.Path.home", return_value=Path(self.temp.name)):
             self.assertIsNone(discover_model_zip(self.game / "ParryHotter-private" / "HP2-Harry-original"))
+
+    def test_bad_web_download_does_not_leave_broken_cached_zip(self):
+        target = Path(self.temp.name) / "295618.zip"
+        with mock.patch("tools.model_asset.urllib.request.urlopen",
+                        return_value=io.BytesIO(b"<html>blocked</html>")):
+            with self.assertRaises(ModelAssetError):
+                download_asset(target)
+        self.assertFalse(target.exists())
+        self.assertFalse(target.with_suffix(".zip.download").exists())
+
+    def test_verified_zip_is_written_atomically(self):
+        target = Path(self.temp.name) / "295618.zip"
+        source = self.zip_path.read_bytes()
+        with mock.patch("tools.model_asset.urllib.request.urlopen",
+                        return_value=io.BytesIO(source)):
+            download_asset(target)
+        self.assertEqual(target.read_bytes(), source)
+        self.assertFalse(target.with_suffix(".zip.download").exists())
 
     def test_unknown_game_folder_fails(self):
         with self.assertRaises(ModelAssetError):
