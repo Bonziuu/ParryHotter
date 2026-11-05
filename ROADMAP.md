@@ -1,4 +1,4 @@
-# Parry Hotter — stan prac (Gothic I, prototyp DEV 0.7)
+# Parry Hotter — stan prac (Gothic I, prototyp DEV 0.9)
 
 ## Zrobione i przetestowane automatycznie
 
@@ -29,7 +29,9 @@
 - [x] Eksperymentalne impulsy po prawdziwym trafieniu: mały wybicie Levicorpus i mocniejsze wybicie Bumbardo, obliczenia z limitami, testy przeszkód i zgodności z aktywnym `zCRigidBody`.
 - [x] `PH_UNION_LOADED` chroni zwykłe czary Gothica przed uruchomieniem specjalnych reakcji w profilu PLAY; builder wymaga nowego symbolu.
 - [ ] **Test w silniku** czy NPC mają `physicsEnabled` / `GetRigidBody()` podczas trafienia. Przy braku aktywnej fizyki dodatkowy impuls zostaje bezpiecznie pominięty.
-- [ ] Peleryna, lewitacja głową w dół, pełne obroty NPC, reagowanie na ziemię/sufit i powrót do rutyny po lądowaniu.
+- [x] Ograniczona czasowo obserwacja NPC po wybiciu, wykrywanie lądowania oraz jednorazowa próba animacji Bumbardo, z testami odbić i timeoutów (nadal bez testu w grze).
+- [x] Zapis gry nie utrwala przypadkowo `PH_UNION_LOADED=1` dla profilu DEV bez pluginu.
+- [ ] Peleryna, lewitacja głową w dół, pełne obroty NPC, pełny ragdoll i rzeczywiste testy animacji po lądowaniu.
 - [x] Koniec globalnego osłabienia BreathOfDeath; stare kopie wartości służą do przywrócenia oryginału.
 - [ ] Dźwięki, błyski, pozostałe animacje i usunięcie konfliktów 1–6 z bazowym interfejsem gry.
 - [ ] Docelowe sterowanie swobodną kamerą z HP2 (obrót postaci i celowanie bez przeskoków).
