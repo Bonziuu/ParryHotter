@@ -202,7 +202,8 @@ namespace {
         const zVEC3 pos = npc->GetPositionWorld();
         const zVEC3 origin = pos + zVEC3(0, 65, 0);
         const zVEC3 down(0, -180, 0);
-        const int flags = zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
+        const int flags = zTRACERAY_STAT_POLY |
+                          zTRACERAY_POLY_NORMAL | zTRACERAY_FIRSTHIT;
         if (!world->TraceRayNearestHit(
                 origin, down, static_cast<zCVob*>(npc), flags))
             return false;
