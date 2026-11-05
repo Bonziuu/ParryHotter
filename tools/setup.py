@@ -24,6 +24,7 @@ from tools.install import PatchError, install
 from tools.model_asset import ModelAssetError, prepare_model, prepare_blender_project, prepare_visual_first, MODEL_PAGE
 from tools.configure_mouse import configure_mouse
 from tools.generate_hud_textures import generate as generate_hud_textures
+from tools.visual_install import install_visual
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -220,6 +221,17 @@ def main() -> int:
         print(f"Nie udalo sie przygotowac modelu: {exc}")
         print(f"Opcjonalnie pobierz oryginalny ZIP tutaj: {MODEL_PAGE}")
         print("Uruchom ponownie: py -3 tools/model_asset.py --zip SCIEZKA_DO_ZIP")
+
+    # The costume is enabled only if a valid local Gothic ASC export exists.
+    # Missing or incomplete original HP2 resources never break the base mod.
+    try:
+        if install_visual(args.game):
+            print("Wyglad Harry'ego z lokalnego ASC zostal zarejestrowany.")
+        else:
+            print("Brak gotowego PH_HARRY.ASC: pozostaje tymczasowa szata maga Gothic.")
+    except PatchError as exc:
+        print(f"Harry ASC jeszcze niegotowy: {exc}")
+        print("Zachowano podstawowe skrypty i tymczasowa szate Gothic.")
 
     print("W GothicStarter_mod wybierz 'Parry Hotter (DEV)' i reparse scripts.")
     print("Rozpocznij NOWA GRE. Model Harry'ego i fizyka ragdoll NIE sa jeszcze dodane.")
