@@ -38,6 +38,7 @@ class SetupTests(unittest.TestCase):
             "Magic/B_AssessMagic.d": (
                 'func void B_AssessMagic_ThunderBall()\n{\n    foo();\n};\n'
                 'func void B_AssessMagic_Breathofdeath()\n{\n    bar();\n};\n'
+            'func void B_AssessMagic_Berzerk()\n{\n    baz();\n};\n'
             ),
             "Magic/Spells_Params.d": 'const int SPL_DAMAGE_BREATHOFDEATH = 100;\n',
             "Cutscene/Ou.bin": "POLISH DIALOGUE FIXTURE\n",
