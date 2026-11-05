@@ -189,12 +189,29 @@ def patch_assess_magic(text: str) -> str:
     return text
 
 
-def patch_spell_params(text: str) -> str:
-    pattern = r"(?im)^(\s*const\s+int\s+SPL_DAMAGE_BREATHOFDEATH\s*=\s*)\d+(\s*;[^\r\n]*)"
-    match = re.search(pattern, text)
-    if not match:
+def patch_spell_params(text: str, original_backup: str | None = None) -> str:
+    """Avoid changing global Gothic spell balance for all NPCs.
+
+    Older Parry Hotter installers forced BreathOfDeath damage down to 1,
+    affecting vanilla NPC casters too. Restore the backed-up original only
+    for a proven legacy 1 -> original transition. Otherwise do nothing.
+    """
+    pattern = (
+        r"(?im)^(\s*const\s+int\s+SPL_DAMAGE_BREATHOFDEATH\s*=\s*)"
+        r"(-?\d+)(\s*;[^\r\n]*)"
+    )
+    m = re.search(pattern, text)
+    if not m:
         raise PatchError("Spells_Params.d: SPL_DAMAGE_BREATHOFDEATH not found")
-    return text[:match.start()] + match.group(1) + "1" + match.group(2) + text[match.end():]
+    if m.group(2) != "1" or original_backup is None:
+        return text
+    original = re.search(pattern, original_backup)
+    if not original or original.group(2) == "1":
+        return text
+    return (
+        text[:m.start()] + m.group(1) + original.group(2) + m.group(3)
+        + text[m.end():]
+    )
 
 
 def install(content_dir: Path, dry_run: bool = False) -> list[Path]:
@@ -216,7 +233,16 @@ def install(content_dir: Path, dry_run: bool = False) -> list[Path]:
     for path, patch in paths.items():
         original = path.read_bytes()
         # Daedalus from the classic ModKit is typically ANSI, not UTF-8.
-        new_content = patch(original.decode("latin-1")).encode("latin-1")
+        if patch is patch_spell_params:
+            backup = path.with_name(path.name + ".parryhotter.bak")
+            backup_text = (
+                backup.read_bytes().decode("latin-1")
+                if backup.is_file() else None
+            )
+            updated = patch(original.decode("latin-1"), backup_text)
+        else:
+            updated = patch(original.decode("latin-1"))
+        new_content = updated.encode("latin-1")
         if new_content != original:
             updates[path] = new_content
 
