@@ -36,6 +36,22 @@ Bohater ma imię Parry Hotter, 200 many, 6 krąg magii i overlay `Humans_Mage.md
 
 **Nie przetestowano jeszcze w prawdziwym silniku** mechanik w stanie końcowym. Testy GitHub Actions sprawdzają kod instalacyjny i zgodność struktury polskich plików, nie grę.
 
+## Automatyczne przygotowanie oryginalnego modelu Harry'ego (bez miotly)
+
+Instalator `INSTALUJ_PARRY_HOTTER.bat` **probuje dodatkowo pobrac** zwyklego Harry'ego z The Models Resource (dokladnie `295618.zip`, a nie wariant Quidditch). Wyodrebnia pliki do osobnego katalogu:
+
+`Gothic/ParryHotter-private/HP2-Harry-original/`
+
+NIE dodaje ich do GitHuba ani do katalogu danych Gothica. Jezeli na komputerze jest Blender, tworzy rowniez prywatny plik `Harry_HP2_to_Gothic_PREP.blend` z FBX i teksturami.
+
+Gdy strona blokuje automatyczne pobieranie, pobierz ZIP recznie z [modelu Harry'ego](https://models.spriters-resource.com/pc_computer/harrypotterthechamberofsecrets/asset/295618/) i uruchom w PowerShellu:
+
+```powershell
+py -3 tools/model_asset.py --zip "C:\Users\TWOJA_NAZWA\Downloads\295618.zip"
+```
+
+**Wazne:** taki plik `.blend` to dopiero pierwszy etap. Model z HP2 ma inny szkielet niz Gothic. Aby bohater wygladal i animowal sie prawidlowo, potrzebny jest retarget do szkieletu Gothic 1, eksport skinned mesh do `.ASC` poprzez KrxImpExp, przygotowanie/kompilacja MDS oraz test uruchomienia. **Sam FBX/OBJ nie podmienia postaci w grze**. Do tej pory nie zostal wyeksportowany dzialajacy `.ASC`. Zrodlo modelu nie jest rozpowszechniane w repo.
+
 ## Model Harry'ego z Komnaty Tajemnic (PC, 2002) — **prywatny prototyp**
 
 Użytkownik przygotowuje Parry Hotter **wyłącznie do osobistych, niekomercyjnych testów i nauki**, bez publikowania moda z modelem. Możemy więc zaplanować **lokalne użycie** oryginalnego modelu z HP2. [Regulamin The Models Resource](https://models.spriters-resource.com/page/tou/) dopuszcza wykorzystywanie zasobów w niepublikowanych, niekomercyjnych projektach w granicach obowiązującego prawa; nie oznacza to automatycznego przeniesienia praw autorskich.
