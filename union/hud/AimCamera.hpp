@@ -27,9 +27,10 @@ public:
         }
         if (!captured_) return;
 
-        const float goalRange = aiming
-            ? std::max(175.0f, std::min(290.0f, savedRange_ * 0.82f))
-            : savedRange_;
+        const float proposed = savedRange_ * 0.82f;
+        const float safeRange = proposed < 175.0f ? 175.0f
+                              : proposed > 290.0f ? 290.0f : proposed;
+        const float goalRange = aiming ? safeRange : savedRange_;
         const float goalShoulder = aiming
             ? savedShoulder_ + 38.0f : savedShoulder_;
 
