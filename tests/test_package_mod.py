@@ -44,6 +44,13 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaises(PackagingError):
             validate_compiled(self.game)
 
+    def test_uppercase_dat_symbols_are_accepted(self):
+        # ZenGin can emit normalized uppercase instance names.
+        self.dat.write_bytes(
+            b"Compiled bytecode PH_RUNE_FLIPENDO, FLIPENDO, AVADA KEDAVRA"
+        )
+        validate_compiled(self.game)
+
     def test_build_separate_release_and_unchanged_dev_ini(self):
         def fake_builder(cmd, *, cwd, **kwargs):
             self.assertEqual(cmd[1], "/B")
