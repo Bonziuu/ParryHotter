@@ -36,7 +36,7 @@ class SetupTests(unittest.TestCase):
                 '};\nINSTANCE PC_Hero_L2(NPC_DEFAULT)\n{\nname="Ja";\n};\n'
             ),
             "Magic/B_AssessMagic.d": (
-                'func void B_AssessMagic_ThunderBall()\n{\n    foo();\n};\n'
+                'func void B_AssessMagic_IceCube()\n{\n    freeze();\n};\n'\n            'func void B_AssessMagic_ThunderBall()\n{\n    foo();\n};\n'
                 'func void B_AssessMagic_Breathofdeath()\n{\n    bar();\n};\n'
             'func void B_AssessMagic_Berzerk()\n{\n    baz();\n};\n'
             ),
