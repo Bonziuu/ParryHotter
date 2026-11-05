@@ -1,4 +1,4 @@
-# Parry Hotter — stan prac (Gothic I, prototyp DEV 0.10)
+# Parry Hotter — stan prac (Gothic I, prototyp DEV 0.11)
 
 ## Zrobione i przetestowane automatycznie
 
@@ -29,6 +29,7 @@
 - [x] Eksperymentalne impulsy po prawdziwym trafieniu: mały wybicie Levicorpus i mocniejsze wybicie Bumbardo, obliczenia z limitami, testy przeszkód i zgodności z aktywnym `zCRigidBody`.
 - [x] `PH_UNION_LOADED` chroni zwykłe czary Gothica przed uruchomieniem specjalnych reakcji w profilu PLAY; builder wymaga nowego symbolu.
 - [x] Eksperymentalny panel diagnostyczny pod **F10**: liczniki trafień, impulsów, lądowań oraz przyczyn braku fizyki, domyślnie ukryty (skompilowany i przetestowany automatycznie).
+- [x] Promień ze środka kamery rozpoznaje teraz NPC bez wymogu zgodności z dodatkowym focus Gothica; `SetFocusVob` synchronizuje cel w chwili rzucania, F10 opisuje przyczynę odmowy namierzenia. Test w rzeczywistym silniku nadal wymagany.
 - [ ] **Test w silniku** czy NPC mają `physicsEnabled` / `GetRigidBody()` podczas trafienia. Panel F10 powinien ujawnić, gdzie blokuje się wyrzut; przy braku aktywnej fizyki dodatkowy impuls pozostaje pominięty.
 - [x] Ograniczona czasowo obserwacja NPC po wybiciu, wykrywanie lądowania oraz jednorazowa próba animacji Bumbardo, z testami odbić i timeoutów (nadal bez testu w grze).
 - [x] Rozpoznane trafienie jest diagnozowane najwyżej raz na rzut; przy otwarciu menu, cutscence lub zmianie świata obserwacja lotu jest przerywana i nie wykonuje animacji lądowania.
