@@ -23,6 +23,8 @@ jobs:
           /tmp/parry_camera_test
           g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_cooldown.cpp -o /tmp/parry_cooldown_test
           /tmp/parry_cooldown_test
+          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_impact_tag.cpp -o /tmp/parry_tag_test
+          /tmp/parry_tag_test
       - name: Generate and validate original 32-bit Gothic TGA icons
         run: |
           python tools/generate_hud_textures.py --out /tmp/ph_icons
@@ -52,6 +54,7 @@ jobs:
           Copy-Item 'union/hud/SpellHudState.hpp' 'sdk/UnionProject/Plugin/SpellHudState.hpp' -Force
           Copy-Item 'union/hud/AimCamera.hpp' 'sdk/UnionProject/Plugin/AimCamera.hpp' -Force
           Copy-Item 'union/hud/SpellCooldown.hpp' 'sdk/UnionProject/Plugin/SpellCooldown.hpp' -Force
+          Copy-Item 'union/hud/SpellImpactTag.hpp' 'sdk/UnionProject/Plugin/SpellImpactTag.hpp' -Force
           Copy-Item 'union/userapi/zCInput_Win32.inl' 'sdk/UnionProject/GothicAPI/Gothic_UserAPI/zCInput_Win32.inl' -Force
       - name: Build native G1 Release / Win32 DLL
         shell: pwsh
