@@ -108,9 +108,9 @@ class InstallTests(unittest.TestCase):
             "Berzerk": "if (Npc_IsPlayer(other) && C_NpcIsHuman(self)) { PH_OnRictusempraHit(); return; };",
         }
         for function, callback in legacy.items():
-            start = "func void B_AssessMagic_" + function + "()\\n{"
+            start = "func void B_AssessMagic_" + function + "()\n{"
             self.assertIn(start, original)
-            original = original.replace(start, start + "\\n    " + callback)
+            original = original.replace(start, start + "\n    " + callback)
         path.write_text(original, encoding="latin-1")
         install(self.content)
         patched = path.read_text(encoding="latin-1")
