@@ -1,8 +1,30 @@
 # Parry Hotter — Gothic 1 🪄
 
-**Wersja 0.3 DEV — polskie skrypty, sześć run, sterowanie LPM i narzędzie do budowania osobnego .mod.**
+**Wersja 0.4 DEV — polskie skrypty, sześć run, eksperymentalny HUD i sterowanie PPM+LPM przez Union oraz budowanie osobnego .mod.**
 
 To nadal **prototyp źródłowy**, a nie kompletny mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic`, fizyki ragdoll ani własnego sterowania klikaniem myszką. Nie gwarantujemy działania wszystkich efektów — instalacja i parsowanie Gothic 1 na komputerze gracza nadal wymagają testów.
+
+## Sterowanie z Komnaty Tajemnic — HUD / Union v0.4 DEV (nowe)
+
+Powstał **eksperymentalny plugin Gothic I Union** i osobne oryginalne tekstury do paska zaklęć. Szczegóły, status i ograniczenia: **[union/README.md](union/README.md)**.
+
+- Sześć kwadratowych slotów zaklęć u dołu ekranu — cały czas podczas rozgrywki, klawisze **1–6**.
+- Mała centralna kropka celownika.
+- Świecąca ikona wybranego czaru pojawia się przy celu, gdy Gothic rozpoznaje żywego NPC w polu skupienia.
+- **Trzymaj PPM**, żeby przygotować czar; **kliknij LPM podczas trzymania PPM**, żeby rzucić pojedynczy czar na zaznaczonego NPC.
+- Usunięto znany konflikt: PPM normalnie powoduje skok w Gothic 1 — plugin zawiera eksperymentalny hook, żeby zapobiec skokowi podczas celowania.
+- 14 nowych tekstur TGA generowanych automatycznie i osobno pakowanych do ParryHotter.mod.
+
+**Ważne:** kompilacja DLL Gothic I przeszła i wydanie [hud-dev](https://github.com/Bonziuu/ParryHotter/releases/tag/hud-dev) istnieje. Testy C++/Python mogą przechodzić, lecz **nie potwierdzono jeszcze rzeczywistego rzucania czarów w uruchomionym Gothic 1**. Dodatkowo standardowa kamera Gothica nie jest idealną kopią kamery Harry Potter PC. Skrótów 1–6 może też dotyczyć konflikt ze standardowym wybieraniem broni; testy gry są konieczne.
+
+### Możliwie proste lokalne uruchomienie
+
+1. Pobierz najnowszy ZIP projektu i wykonaj **INSTALUJ_PARRY_HOTTER.bat**. Instalator pobierze polskie skrypty, zainstaluje czary i utworzy tekstury ikon.
+2. W GothicStarter_mod wybierz **Parry Hotter (DEV)**, zaznacz **Reparse Scripts** i uruchom nową grę, żeby skompilować pliki; po kompilacji wyjdź.
+3. W folderze projektu wykonaj **ZBUDUJ_MOD_PO_REPARSE.bat** — próbuje zbudować **ParryHotter.mod** zawierający skompilowane skrypty, polskie napisy, 14 ikon oraz podpisany sumą SHA-256 eksperymentalny plik DLL z GitHuba.
+4. Uruchom profil **Parry Hotter (PLAY)** z GothicStarter. Graj tylko na nowych/testowych zapisach, ponieważ DLL nie został jeszcze zweryfikowany w samej grze.
+
+Brakuje nadal fizycznej konwersji modelu Harry'ego w pelerynie do ASC oraz zaawansowanej fizyki NPC. Nie traktuj prototypu jako kompletnej gry.
 
 ## Co zmieniono w v0.3 (przed kolejnym testem)
 
