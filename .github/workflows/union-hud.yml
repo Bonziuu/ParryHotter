@@ -1,0 +1,59 @@
+name: Experimental Gothic I Union HUD plugin
+on:
+  push:
+    paths:
+      - 'union/**'
+      - 'tools/generate_hud_textures.py'
+      - '.github/workflows/union-hud.yml'
+  workflow_dispatch:
+
+jobs:
+  state-and-sprites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile C++ HUD state tests
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_hud.cpp -o /tmp/parry_hud_test
+          /tmp/parry_hud_test
+      - name: Generate and validate original 32-bit Gothic TGA icons
+        run: |
+          python tools/generate_hud_textures.py --out /tmp/ph_icons
+          python - <<'PY'
+          import pathlib
+          p=pathlib.Path('/tmp/ph_icons')
+          files=list(p.glob('*.TGA'))
+          assert len(files)==14, [x.name for x in files]
+          for path in files:
+              b=path.read_bytes()
+              assert b[2]==2 and b[16]==32 and b[17]==0x28
+              assert len(b)==18+64*64*4, path.name
+          print('Original icons OK:', len(files))
+          PY
+
+  build-g1-union:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Clone known Gothic I Union SDK template
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/Gratt-5r2/UnionProject.git sdk
+          Copy-Item 'union/Plugin/plugin.cpp' 'sdk/UnionProject/Plugin/plugin.cpp' -Force
+          Copy-Item 'union/hud/SpellHudState.hpp' 'sdk/UnionProject/Plugin/SpellHudState.hpp' -Force
+      - name: Build native G1 Release / Win32 DLL
+        shell: pwsh
+        run: |
+          msbuild 'sdk/UnionProject.sln' /m /p:Configuration="G1 Release" /p:Platform=Win32 /v:minimal
+      - name: Show built DLL candidates
+        shell: pwsh
+        run: |
+          Get-ChildItem sdk -Filter '*.dll' -Recurse | ForEach-Object { Write-Host $_.FullName }
+      - name: Preserve DLL as a private test artifact (not a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParryHotter-Union-G1-EXPERIMENTAL
+          path: sdk/**/*.dll
+          if-no-files-found: warn
