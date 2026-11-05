@@ -52,6 +52,14 @@ def main() -> int:
 
         download_polish_scripts(archive)
         unpack_polish_content(archive, content)
+        # GDC's lexer rejects an original Gothic 1 source identifier with Ö,
+        # although ZenGin's own parser accepts it. Fix only a temporary CI
+        # copy, NOT the user's Polish game files or public game sources.
+        misc = content / "Items" / "Misc.d"
+        raw = misc.read_bytes()
+        for original in (b"Value_\xd6l", b"Value_\xc3\x96l"):
+            raw = raw.replace(original, b"Value_Oel")
+        misc.write_bytes(raw)
         install(content)
         get_compiler(compiler)
 
