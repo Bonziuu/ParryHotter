@@ -40,6 +40,7 @@ class ModelAssetError(RuntimeError):
 
 
 def download_asset(target: Path) -> None:
+    """Atomic download: never leave a partial ZIP that blocks later retries."""
     request = urllib.request.Request(
         MODEL_SOURCE,
         headers={
@@ -48,10 +49,11 @@ def download_asset(target: Path) -> None:
             "Accept": "application/zip,application/octet-stream,*/*",
         },
     )
+    partial = target.with_suffix(".zip.download")
     try:
         with urllib.request.urlopen(request, timeout=40) as response:
             written = 0
-            with target.open("wb") as out:
+            with partial.open("wb") as out:
                 while True:
                     chunk = response.read(256 * 1024)
                     if not chunk:
@@ -60,13 +62,17 @@ def download_asset(target: Path) -> None:
                     if written > MAX_DOWNLOAD_SIZE:
                         raise ModelAssetError("Archive exceeds 12 MB limit")
                     out.write(chunk)
+        if not zipfile.is_zipfile(partial):
+            raise ModelAssetError(
+                "Zrodlo nie zwrocilo ZIP (mozliwa ochrona strony). "
+                "Pobierz ZIP w przegladarce i zapisz w Downloads."
+            )
+        partial.replace(target)
     except (TimeoutError, urllib.error.URLError) as exc:
         raise ModelAssetError("Automatyczne pobieranie nie powiodlo sie: " + str(exc)) from exc
-    if not zipfile.is_zipfile(target):
-        raise ModelAssetError(
-            "Zrodlo nie zwrocilo ZIP (mozliwa ochrona strony). "
-            "Pobierz ZIP w przegladarce i uruchom ponownie z --zip."
-        )
+    finally:
+        if partial.is_file():
+            partial.unlink()
 
 
 
@@ -113,7 +119,8 @@ def prepare_model(game_dir: Path, model_archive: Path | None = None) -> Path:
     private_dir.mkdir(parents=True, exist_ok=True)
     cached_zip = private_dir / "295618.zip"
     zip_path = model_archive or (
-        cached_zip if cached_zip.is_file() else discover_model_zip(private_dir)
+        cached_zip if cached_zip.is_file() and zipfile.is_zipfile(cached_zip)
+        else discover_model_zip(private_dir)
     )
     if zip_path is None:
         # Try downloading automatically if no suitable local archive exists.
