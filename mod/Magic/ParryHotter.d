@@ -28,7 +28,7 @@ INSTANCE PH_Rune_Levicorpus(C_Item)
     spell = SPL_ICECUBE;
     mag_circle = 1;
     description = "Levicorpus";
-    TEXT[0] = "Prototyp: zamrozenie";
+    TEXT[0] = "Zawieszenie celu (prototyp)";
     TEXT[1] = NAME_Manakosten; COUNT[1] = SPL_SENDCAST_ICECUBE;
 };
 
@@ -107,6 +107,47 @@ FUNC VOID PH_OnExpelliarmusHit()
                 AI_DropItem(self, Hlp_GetInstanceID(heldWeapon));
             };
         };
+    };
+};
+
+// Levicorpus: a short harmless human reaction, deliberately separate from
+// Gothic's damaging ZS_MagicFreeze. This is the SCRIPTED PLACEHOLDER for the
+// eventual inverted floating animation. No permanent damage or trapped AI.
+// Non-human targets retain normal IceCube behavior.
+FUNC VOID PH_OnLevicorpusHit()
+{
+    if (Npc_IsPlayer(other))
+    {
+        if (!Npc_IsDead(self) && C_NpcIsHuman(self))
+        {
+            Npc_ClearAIQueue(self);
+            AI_StartState(self, ZS_PH_Levicorpus, 0, "");
+        };
+    };
+};
+
+FUNC VOID ZS_PH_Levicorpus()
+{
+    B_FullStop(self);
+    AI_PlayAni(self, "T_PSI_VICTIM");
+    AI_Wait(self, 0.8);
+};
+
+FUNC INT ZS_PH_Levicorpus_Loop()
+{
+    if (Npc_IsDead(self) || (Npc_GetStateTime(self) >= 4))
+    {
+        return LOOP_END;
+    };
+    AI_Wait(self, 0.4);
+    return LOOP_CONTINUE;
+};
+
+FUNC VOID ZS_PH_Levicorpus_End()
+{
+    if (!Npc_IsDead(self))
+    {
+        AI_ContinueRoutine(self);
     };
 };
 
