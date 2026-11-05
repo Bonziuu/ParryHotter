@@ -41,18 +41,18 @@ def patch_source(text: str) -> str:
 
 
 def patch_hero_temporary_robe(text: str) -> str:
-    """Equip a STOCK Gothic I mage robe visually; not the original Harry mesh.
+    """Use stock Gothic I mage robes until a validated original HP2 mesh exists.
 
-    Limited to the PC_Hero instance. No copy of 3D assets is required.
-    Preserve hair and head, original human skeleton and hitboxes.
+    Changes only the player's visual armor; keeps original Gothic animations
+    and hitboxes. No proprietary graphics or converted model needed.
     """
-    found = re.search(r"(?is)\\bINSTANCE\\s+PC_Hero\\s*\\(\\s*NPC_DEFAULT\\s*\\)\\s*\\{", text)
+    found = re.search(r"(?is)\bINSTANCE\s+PC_Hero\s*\(\s*NPC_DEFAULT\s*\)\s*\{", text)
     if found is None:
         raise PatchError("PC_Hero.d: PC_Hero instance missing for appearance")
-    next_hero = re.search(r"(?im)^\\s*INSTANCE\\s+PC_Hero_\\w+\\s*\\(", text[found.end():])
+    next_hero = re.search(r"(?im)^\s*INSTANCE\s+PC_Hero_\w+\s*\(", text[found.end():])
     end = found.end() + next_hero.start() if next_hero else len(text)
     section = text[found.start():end]
-    pattern = r"(?is)(Mdl_SetVisualBody\\s*\\(\\s*self\\s*,[^;]*?,\\s*)(-1|KDF_ARMOR_L)(\\s*\\)\\s*;)"
+    pattern = r"(?is)(Mdl_SetVisualBody\s*\(\s*self\s*,[^;]*?,\s*)(-1|KDF_ARMOR_L)(\s*\)\s*;)"
     matches = list(re.finditer(pattern, section))
     if len(matches) != 1:
         raise PatchError("PC_Hero.d: expected one standard Mdl_SetVisualBody call")
@@ -70,7 +70,7 @@ def patch_hero(text: str) -> str:
     mage_overlay = 'Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");'
     if HERO_MARK in text:
         if mage_overlay not in text:
-            newline = "\\r\\n" if "\\r\\n" in text else "\\n"
+            newline = "\r\n" if "\r\n" in text else "\n"
             text = text.replace(HERO_MARK, HERO_MARK + newline + "    " + mage_overlay, 1)
         return patch_hero_temporary_robe(text)
 
