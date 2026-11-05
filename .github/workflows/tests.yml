@@ -16,6 +16,8 @@ jobs:
           python-version: '3.11'
       - name: Test local patcher and installer
         run: python -m unittest discover -s tests -v
+      - name: Check Blender visual preparation script syntax
+        run: python -m py_compile tools/blender_visual_first.py tools/blender_prepare.py
 
   unified-pl-smoke:
     runs-on: windows-latest
