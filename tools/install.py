@@ -52,7 +52,7 @@ def patch_hero_temporary_robe(text: str) -> str:
     next_hero = re.search(r"(?im)^\s*INSTANCE\s+PC_Hero_\w+\s*\(", text[found.end():])
     end = found.end() + next_hero.start() if next_hero else len(text)
     section = text[found.start():end]
-    pattern = r"(?is)(Mdl_SetVisualBody\s*\(\s*self\s*,[^;]*?,\s*)(-1|KDF_ARMOR_L)(\s*\)\s*;)"
+    pattern = r"(?is)(Mdl_SetVisualBody\s*\(\s*self\s*,[^;]*?,\s*)(-1|KDF_ARMOR_L|PH_ARMOR_HARRY)(\s*\)\s*;)"
     matches = list(re.finditer(pattern, section))
     # Some test fixtures and customized ModKits omit the visual call.
     # Never block spell installation just because a visual fallback is absent.
@@ -61,7 +61,7 @@ def patch_hero_temporary_robe(text: str) -> str:
     if len(matches) != 1:
         raise PatchError("PC_Hero.d: multiple Mdl_SetVisualBody calls in player instance")
     appearance = matches[0]
-    if appearance.group(2).upper() == "KDF_ARMOR_L":
+    if appearance.group(2).upper() in ("KDF_ARMOR_L", "PH_ARMOR_HARRY"):
         return text
     replacement = appearance.group(1) + "KDF_ARMOR_L" + appearance.group(3)
     section = section[:appearance.start()] + replacement + section[appearance.end():]
