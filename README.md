@@ -10,9 +10,17 @@ To nadal **prototyp źródłowy**, a nie kompletny mod `.mod`. Nie ma jeszcze mo
 - **Avada Kedavra** losuje jedną z dwóch dostępnych animacji przed obrażeniami śmiertelnymi. Nadal nie jest to ragdoll ani gotowy komediowy zestaw animacji.
 - **Mysz:** instalator ustawia `Gothic2_Control=1` w `SystemPack.ini` i `enableMouse=1` w `Gothic.ini`, o ile odpowiednie klucze istnieją. Oryginalne pliki zapisuje jako `.parryhotter-original`. Wybrany czar można rzucać przez LPM. **Rolka i osobne celowanie PPM nadal nie istnieją**.
 - **Osobny mod:** po poprawnej kompilacji `Gothic.dat` przez GothicStarter_mod uruchom `ZBUDUJ_MOD_PO_REPARSE.bat`. Wymaga narzędzia `GothicVDFS.exe` z ModKitu. Tworzy `Data/ModVDF/ParryHotter.mod` i `System/ParryHotter-PLAY.ini`. Profil PLAY nie ma `-zreparse`, więc korzysta z pakietu. Nadal nie zawiera skórki Harry'ego.
-- **Testy:** GitHub Actions sprawdza instalację na Windows/Linux, prawdziwy polski zestaw Unified-PL, skrypty Pythona i kompilację Daedalus przez niezależny kompilator (wynik tego ostatniego testu należy sprawdzić w Actions).
+- **Testy:** GitHub Actions przeszły na Windows i Linux, przygotowanie prawdziwego polskiego zestawu Unified-PL oraz kompilację składni całego zestawu Daedalus niezależnym kompilatorem GDC. Na potrzeby wyłącznie tego testu GDC wymaga tymczasowej adaptacji klasy `C_NPC` oraz historycznej nazwy stałej. **Powstały w CI DAT nie jest kompatybilnym artefaktem Gothic 1 do instalowania**; nadal nie przeprowadzono testu oryginalnym parserem ZenGin ani w samej grze.
 
 Nadal **brak gotowego skórkowanego modelu ASC, modelu różdżki, wtyczki fizyki NPC i prawdziwej integracji w silniku**. Nie traktuj wersji DEV jako gotowego wydania; nie zastępuje ona testów w Gothic 1.
+
+## Stan prac: co jest gotowe, a co nie
+
+**Gotowe do testu:** polskie skrypty/napisy, sześć run, wstępne animacje Rictusempra i Avada, bezpieczna kopia zapasowa, zmiana sterowania LPM w INI, automat do utworzenia własnego `.mod` z lokalnie skompilowanych plików.
+
+**Nieukończone:** działający w Gothic 1 model `.ASC` Harry'ego z peleryną, własny efekt lewitacji i odrzutu w powietrze (ragdoll), zmiana zaklęć rolką, oddzielne celowanie PPM, potwierdzenie działania run w silniku gry. Skrypt Blendera przygotowuje tylko podgląd: **nie jest automatyczną konwersją modelu do gry**.
+
+**Nie publikujemy moda jako „gotowego”** przed testem oryginalnym GothicStarter, pakowania GothicVDFS i rzeczywistym uruchomieniem.
 
 ## Instalacja możliwie najprostsza (Steam Windows)
 
