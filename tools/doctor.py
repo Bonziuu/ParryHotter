@@ -76,6 +76,10 @@ def report(game: Path) -> str:
             + "Runa Flipendo w skompilowanym Gothic.dat"
         )
         output.append(
+            ("[OK] " if b"ph_union_loaded" in data else "[UWAGA] ")
+            + "Ochrona zwyklych czarow Gothic PH_UNION_LOADED (brak: Reparse Scripts)"
+        )
+        output.append(
             ("[OK] " if b"ph_selected_spell" in data else "[UWAGA] ")
             + "Mostek HUD/Daedalus PH_SELECTED_SPELL (brak: wykonaj Reparse Scripts)"
         )
