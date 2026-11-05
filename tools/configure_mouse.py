@@ -1,8 +1,7 @@
-"""Make Gothic 1 spell casting possible with one left mouse click.
+"""Enable Gothic mouse input without overriding Union PPM + LPM controls.
 
-Uses SystemPack/Union's established Gothic2_Control=1 option; no untested
-C++ keyboard hook, global Windows keyboard events, or DLL injection.
-Preserves INI formatting/comments and keeps a backup of the original file.
+If a previous ParryHotter version enabled global Gothic2_Control=1,
+revert only its backed-up change and preserve other custom settings.
 """
 from __future__ import annotations
 
@@ -41,8 +40,8 @@ def read_option(path: Path, key: str) -> str | None:
         return None
     content = path.read_bytes().decode("latin-1")
     expression = re.compile(
-        r"(?im)^(?![ \\t]*[;#])[ \\t]*" + re.escape(key)
-        + r"[ \\t]*=[ \\t]*([^\\r\\n]*)"
+        r"(?im)^(?![ \t]*[;#])[ \t]*" + re.escape(key)
+        + r"[ \t]*=[ \t]*([^\r\n]*)"
     )
     matches = expression.findall(content)
     return matches[0].strip() if len(matches) == 1 else None
