@@ -507,9 +507,14 @@ cexport void Game_PreLoop() {}
 cexport void Game_Loop() { GameTick(); }
 cexport void Game_PostLoop() {}
 cexport void Game_MenuLoop() {}
-cexport void Game_SaveBegin() {}
+cexport void Game_SaveBegin() {
+    // Do not persist a pending 7-second hit tag in a save.
+    ResetSelectedSpellForScript();
+}
 cexport void Game_SaveEnd() {}
 cexport void Game_LoadBegin_NewGame() {
+    // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
+    ResetSelectedSpellForScript();
     if (gAiming) LowerWand();
     gCamera.Forget();
     RemoveHud();
@@ -521,6 +526,8 @@ cexport void Game_LoadEnd_NewGame() {
     gCooldown.Reset();
 }
 cexport void Game_LoadBegin_SaveGame() {
+    // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
+    ResetSelectedSpellForScript();
     if (gAiming) LowerWand();
     gCamera.Forget();
     RemoveHud();
@@ -532,6 +539,8 @@ cexport void Game_LoadEnd_SaveGame() {
     gCooldown.Reset();
 }
 cexport void Game_LoadBegin_ChangeLevel() {
+    // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
+    ResetSelectedSpellForScript();
     if (gAiming) LowerWand();
     gCamera.Forget();
     RemoveHud();
