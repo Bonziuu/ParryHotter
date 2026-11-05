@@ -16,6 +16,7 @@
 #include "ImpactImpulse.hpp"
 #include "FlightRecovery.hpp"
 #include "ImpactTelemetry.hpp"
+#include "AimTargetState.hpp"
 #include <cstdio>
 #include <cmath>
 #include <chrono>
@@ -109,6 +110,14 @@ namespace {
     ParryHotter::ImpactTelemetry gTelemetry;
     bool gDiagnosticVisible = false;
     bool gDiagnosticDirty = true;
+    ParryHotter::AimTargetState gAimTargetState = ParryHotter::AimTargetState::NoPlayer;
+
+    void SetAimTargetState(ParryHotter::AimTargetState state) {
+        if (gAimTargetState != state) {
+            gAimTargetState = state;
+            gDiagnosticDirty = true;
+        }
+    }
     zCView* gDiagnosticPanel = nullptr;
 
     void NoteImpact(ParryHotter::ImpactEvent event) {
@@ -132,7 +141,7 @@ namespace {
         }
         if (!gDiagnosticDirty) return;
         HideDiagnostics();
-        gDiagnosticPanel = new zCView(220, 420, 5850, 1200);
+        gDiagnosticPanel = new zCView(220, 420, 5850, 1440);
         screen->InsertItem(gDiagnosticPanel);
         char title[220]{};
         char stats[240]{};
@@ -152,6 +161,10 @@ namespace {
         gDiagnosticPanel->Print(30, 20, zSTRING(title));
         gDiagnosticPanel->Print(30, 250, zSTRING(stats));
         gDiagnosticPanel->Print(30, 490, zSTRING(causes));
+        char targetLine[240]{};
+        std::snprintf(targetLine, sizeof(targetLine), "Cel: %s",
+                      ParryHotter::AimTargetDescription(gAimTargetState));
+        gDiagnosticPanel->Print(30, 710, zSTRING(targetLine));
         gDiagnosticDirty = false;
     }
 
@@ -467,30 +480,57 @@ namespace {
     // point to another nearby NPC and must not silently block the crosshair.
     // The nearest ray hit must itself be a living NPC, not a wall or prop.
     oCNpc* GetCenteredNpcTarget() {
-        if (!player) return nullptr;
+        if (!player) {
+            SetAimTargetState(ParryHotter::AimTargetState::NoPlayer);
+            return nullptr;
+        }
         zCAICamera* cam = zCAICamera::current;
         zCVob* cameraVob = cam ? cam->camVob : nullptr;
         zCWorld* world = player->GetHomeWorld();
-        if (!cameraVob || !world) return nullptr;
+        if (!cameraVob) {
+            SetAimTargetState(ParryHotter::AimTargetState::NoCamera);
+            return nullptr;
+        }
+        if (!world) {
+            SetAimTargetState(ParryHotter::AimTargetState::NoWorld);
+            return nullptr;
+        }
 
         zVEC3 direction = cameraVob->GetAtVectorWorld();
-        if (direction.Length_Sqr() < 0.01f) return nullptr;
+        if (direction.Length_Sqr() < 0.01f) {
+            SetAimTargetState(ParryHotter::AimTargetState::NoCamera);
+            return nullptr;
+        }
         direction.Normalize();
         direction *= zVEC3(1900.0f);
         const int flags = zTRACERAY_VOB_BBOX |
                           zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
         if (!world->TraceRayNearestHit(
                 cameraVob->GetPositionWorld(), direction,
-                static_cast<zCVob*>(player), flags))
+                static_cast<zCVob*>(player), flags)) {
+            SetAimTargetState(ParryHotter::AimTargetState::NoRayHit);
             return nullptr;
+        }
         zCVob* hitVob = world->traceRayReport.foundVob;
         oCNpc* npc = zDYNAMIC_CAST<oCNpc>(hitVob);
-        if (!npc || npc == player || npc->IsDead() ||
-            npc->GetHomeWorld() != world)
+        if (!npc || npc == player) {
+            SetAimTargetState(ParryHotter::AimTargetState::WallOrObject);
             return nullptr;
+        }
+        if (npc->IsDead()) {
+            SetAimTargetState(ParryHotter::AimTargetState::DeadNpc);
+            return nullptr;
+        }
+        if (npc->GetHomeWorld() != world) {
+            SetAimTargetState(ParryHotter::AimTargetState::WrongWorld);
+            return nullptr;
+        }
         const float distance = player->GetDistanceToVob(*npc);
-        if (distance < 0.0f || distance >= 1900.0f)
+        if (distance < 0.0f || distance >= 1900.0f) {
+            SetAimTargetState(ParryHotter::AimTargetState::OutOfRange);
             return nullptr;
+        }
+        SetAimTargetState(ParryHotter::AimTargetState::ValidNpc);
         return npc;
     }
 
@@ -562,7 +602,10 @@ namespace {
         oCNpc* target = GetCenteredNpcTarget();
         if (!target) return false;
         oCMag_Book* spellbook = player->GetSpellBook();
-        if (!spellbook) return false;
+        if (!spellbook) {
+            SetAimTargetState(ParryHotter::AimTargetState::NoSpellBook);
+            return false;
+        }
         // Bind the game engine's target to the actual center-screen NPC.
         // Gothic's own focus detection may otherwise select a neighbor.
         player->SetFocusVob(static_cast<zCVob*>(target));
