@@ -15,11 +15,12 @@ Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utwor
 - Instalator szuka oryginalnego archiwum **Harry Potter (PC 2002), bez miotły** w prywatnej pamięci, pobranych plikach i na stronie modelu. Gdy model jest już pobrany do Downloads, odnajduje go bez ręcznej ścieżki.
 - Jeśli dostępny jest Blender, `blender_prepare.py` przygotowuje scenę i przetwarza wszystkie cztery tekstury PNG na bezpiecznie nazwane `PH_HARRY_TEX0..3.TGA` dla Gothica.
 - `blender_visual_first.py` przygotowuje dopasowanie Harry'ego do szkieletu Gothica, usuwa oryginalne wagi kości HP2 i sprawdza, czy minimum 85% wierzchołków otrzymało wagi ludzkiego szkieletu. Wynikiem nadal jest **podgląd .blend**, nie finalny ASC.
-- `tools/visual_install.py` **włącza oryginalny wygląd dopiero po wykryciu lokalnie przekonwertowanego modelu** `Gothic/ParryHotter-private/HP2-Harry-converted/PH_HARRY.ASC` i czterech tekstur TGA. Dopisuje model do `HUMANS.MDS`, tworzy nowy strój, aktualizuje bohatera i przygotowuje źródła do ponownego parsowania.
+- `tools/stage_harry_export.py` automatycznie wykrywa `PH_HARRY.ASC` wyeksportowany obok oryginalnego FBX, poprawia referencje do tekstur na `PH_HARRY_TEX0..3.TGA` i przenosi pliki do prywatnego folderu `HP2-Harry-converted`.
+- `tools/visual_install.py` **włącza oryginalny wygląd dopiero po wykryciu lokalnie przekonwertowanego modelu** `Gothic/ParryHotter-private/HP2-Harry-converted/PH_HARRY.ASC` i czterech tekstur TGA. Sprawdza obecność **`*MESH_SOFTSKINVERTS` i kości `Bip01`**, żeby odmówić instalacji nieruchomego modelu w pozie T. Dopisuje model do `HUMANS.MDS`, tworzy strój, aktualizuje bohatera i przygotowuje źródła do ponownego parsowania.
 - `ZBUDUJ_MOD_PO_REPARSE.bat` umieszcza prywatny model i tekstury **tylko w Twoim lokalnym .mod**, jeśli źródła i skompilowany DAT są kompletne. Publiczne repozytorium nie zawiera modelu z gry Harry Potter.
 - `SPRAWDZ_PARRY_HOTTER.bat` rozpoznaje tymczasową szatę i sprawdza, czy prawdziwy model ASC oraz jego tekstury są aktywne.
 
-**Nadal brakuje:** wygenerowania i sprawdzenia prawdziwego pliku ASC z oryginalnego FBX, importu szkieletu Gothica do Blendera, modelu różdżki i testu animacji peleryny w ZenGin. Nie deklarujemy, że HP2 Harry jest już widoczny w grze.
+**Nadal brakuje:** wygenerowania i sprawdzenia prawdziwego pliku ASC z oryginalnego FBX, importu szkieletu Gothica do Blendera, modelu różdżki i testu animacji peleryny w ZenGin. Gdy użytkownik wyeksportuje `PH_HARRY.ASC` obok źródłowego FBX, **obecny instalator zajmie się pozostałym lokalnym etapem automatycznie**. Nie deklarujemy, że HP2 Harry jest już widoczny w grze.
 
 ## Etap 1/5: kamera i celowanie (wersja developerska)
 
