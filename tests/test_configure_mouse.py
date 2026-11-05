@@ -15,7 +15,7 @@ class MouseConfigTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.game = Path(self.tmp.name) / "Gothic"
         self.system = self.game / "System"
-        self.system.mkdir()
+        self.system.mkdir(parents=True)
 
     def test_enable_mouse_and_one_click_preserves_other_lines(self):
         systempack = self.system / "SystemPack.ini"
