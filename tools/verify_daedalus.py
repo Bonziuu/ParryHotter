@@ -70,8 +70,8 @@ def main() -> int:
             ],
             cwd=temp, capture_output=True, text=False, timeout=240,
         )
-        print("Daedalus stdout:\n" + (process.stdout or b"").decode("utf-8", "replace")[-12000:])
-        print("Daedalus stderr:\n" + (process.stderr or b"").decode("utf-8", "replace")[-12000:])
+        print(("Daedalus stdout:\n" + (process.stdout or b"").decode("utf-8", "replace")[-12000:]).encode("ascii", "backslashreplace").decode("ascii"))
+        print(("Daedalus stderr:\n" + (process.stderr or b"").decode("utf-8", "replace")[-12000:]).encode("ascii", "backslashreplace").decode("ascii"))
         if process.returncode or not output.is_file():
             raise PatchError(f"Daedalus compiler failed (exit={process.returncode})")
         compiled = output.read_bytes()
