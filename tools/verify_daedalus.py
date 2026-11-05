@@ -103,8 +103,11 @@ def main() -> int:
         if process.returncode or not output.is_file():
             raise PatchError(f"Daedalus compiler failed (exit={process.returncode})")
         compiled = output.read_bytes()
-        for marker in (b"Flipendo", b"PH_Rune_Flipendo", b"Avada Kedavra"):
-            if marker not in compiled:
+        # GDC normalizes symbol identifiers to uppercase in its output.
+        # User-facing spell names must remain embedded as readable strings.
+        symbols_upper = compiled.upper()
+        for marker in (b"FLIPENDO", b"PH_RUNE_FLIPENDO", b"AVADA KEDAVRA"):
+            if marker not in symbols_upper:
                 raise PatchError(f"Compiled Gothic.dat missing marker {marker!r}")
         print(f"OK: Daedalus compiled Gothic.dat ({len(compiled)} bytes)")
         print("Engine, animations, mouse and gameplay still require a real game test")
