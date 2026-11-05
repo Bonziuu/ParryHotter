@@ -31,7 +31,7 @@ class InstallTests(unittest.TestCase):
             encoding="latin-1",
         )
         (self.content / "Magic" / "B_AssessMagic.d").write_text(
-            'func void B_AssessMagic_ThunderBall()\n{\n    foo();\n};\n'
+            'func void B_AssessMagic_IceCube()\n{\n    freeze();\n};\n'\n            'func void B_AssessMagic_ThunderBall()\n{\n    foo();\n};\n'
             'func void B_AssessMagic_Breathofdeath()\n{\n    bar();\n};\n'
             'func void B_AssessMagic_Berzerk()\n{\n    baz();\n};\n',
             encoding="latin-1",
@@ -51,6 +51,8 @@ class InstallTests(unittest.TestCase):
         self.assertIn('INSTANCE PC_Hero_L2', hero)
         hooks = (self.content / "Magic" / "B_AssessMagic.d").read_text(encoding="latin-1")
         self.assertIn("PH_OnAvadaHit();", hooks)
+        self.assertIn("PH_OnLevicorpusHit(); return;", hooks)
+        self.assertEqual(hooks.count("PH_OnLevicorpusHit();"), 1)
         self.assertIn("PH_OnExpelliarmusHit();", hooks)
         self.assertIn("Magic\\ParryHotter.d", (self.content / "Gothic.src").read_text(encoding="latin-1"))
         self.assertEqual(
