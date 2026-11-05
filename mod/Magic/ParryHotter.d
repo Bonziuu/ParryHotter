@@ -7,6 +7,8 @@
 // Gothic's native spells share our placeholder spell IDs, so distinguish
 // Parry Hotter slots on impact whenever the Union plugin is present.
 VAR INT PH_SELECTED_SPELL;
+VAR INT PH_UNION_LOADED; // 1 only while the native HUD plugin owns casting
+
 
 FUNC INT PH_IsSelectedSpell(VAR INT slot)
 {
@@ -14,9 +16,21 @@ FUNC INT PH_IsSelectedSpell(VAR INT slot)
     {
         return FALSE;
     };
-    if ((PH_SELECTED_SPELL == 0) || (PH_SELECTED_SPELL == slot))
+    // In PLAY, unrelated vanilla spells must never trigger Parry effects.
+    // In DEV without Union, retain the original player-runestone fallback.
+    if (PH_UNION_LOADED == 1)
     {
-        return TRUE;
+        if (PH_SELECTED_SPELL == slot)
+        {
+            return TRUE;
+        };
+    }
+    else
+    {
+        if (PH_SELECTED_SPELL == 0)
+        {
+            return TRUE;
+        };
     };
     return FALSE;
 };
