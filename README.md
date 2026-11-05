@@ -36,6 +36,21 @@ Bohater ma imię Parry Hotter, 200 many, 6 krąg magii i overlay `Humans_Mage.md
 
 **Nie przetestowano jeszcze w prawdziwym silniku** mechanik w stanie końcowym. Testy GitHub Actions sprawdzają kod instalacyjny i zgodność struktury polskich plików, nie grę.
 
+## Priorytet: wyglad Harry'ego i peleryna (Visual First)
+
+**Nie kopiujemy hitboxow ani oryginalnych animacji z HP2.** Zachowujemy bryle modelu, twarz, wlosy, tekstury i szkolna peleryne, a do ruchu wykorzystujemy **zwykly szkielet czlowieka Gothic 1**.
+
+Nowy skrypt `tools/blender_visual_first.py`:
+- importuje niezmieniony model `skharrymesh.fbx` i jego materialy,
+- usuwa obiekty z nazwa typu broom/Quidditch (jezeli takie wystepuja),
+- skaluje model wzgledem ludzkiej postaci Gothica,
+- przenosi wagi kosci z siatki Gothic na siatke Harry'ego, a odrebna peleryne przyczepia do plecow,
+- zapisuje podgladowy projekt Blendera `ParryHotter_VISUAL_FIRST.blend`, bez zamiany fizyki ani hitboxow.
+
+Aby uruchomic ten etap **potrzebna jest referencja szkieletu**: `Gothic/ParryHotter-private/GothicHuman.blend` z zaimportowanym przez KrxImpExp `HUM_BODY_NAKED0.ASC`. Jezeli Blender i referencja sa dostepne, instalator automatycznie przygotuje podglad. To nie jest jeszcze wynikowy plik `.ASC` — potrzebny jest eksport ASC zgodny z ZenGin, rejestracja siatki w MDS, aktywacja modelu i test w silniku.
+
+Brak pliku z modelem lub poprawnego szkieletu nie moze zostac magicznie zastapiony przez sam skrypt Daedalus. Nie deklarujemy, ze model jest podmieniony, dopoki nie powstanie poprawny ASC i nie zostanie przetestowany w Gothic 1.
+
 ## Automatyczne przygotowanie oryginalnego modelu Harry'ego (bez miotly)
 
 Instalator `INSTALUJ_PARRY_HOTTER.bat` **probuje dodatkowo pobrac** zwyklego Harry'ego z The Models Resource (dokladnie `295618.zip`, a nie wariant Quidditch). Wyodrebnia pliki do osobnego katalogu:
