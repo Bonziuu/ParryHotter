@@ -1,12 +1,25 @@
 # Parry Hotter — Gothic 1 🪄
 
-**Wersja 0.9 DEV — stały HUD Union, kamera zza ramienia, różdżka, impulsy po trafieniach i kontrola lądowania NPC.**
+**Wersja 0.10 DEV — HUD Union, kamera zza ramienia, różdżka, odrzut i lądowanie NPC oraz diagnostyka fizyki w grze pod F10.**
 
 To nadal **prototyp źródłowy**, a nie kompletnie sprawdzony mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic` ani fizyki ragdoll. Sterowanie PPM + LPM i HUD mają skompilowaną wtyczkę Union, ale nie zostały jeszcze potwierdzone w uruchomionym Gothic 1.
 
 ### Diagnostyka bez ręcznego szukania plików
 
 Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utworzy `ParryHotter_diagnostics.txt` obok pliku BAT i sprawdzi w trybie tylko do odczytu: profile DEV/PLAY, plik `.mod`, kompilację zaklęć, polskie OU.bin, wszystkie 14 ikon oraz ustawienia myszy. Możesz przesłać raport, jeśli gra zachowuje się nieprawidłowo. Raport **nie sprawdza rozgrywki**, fizyki ani ruchów Harry'ego.
+
+## Etap 4e: diagnostyka fizyki w grze (DEV 0.10)
+
+Dodałem **opcjonalny panel F10**, który umożliwia sprawdzenie podczas gry, czy rzeczywiste trafienie Bumbardo/Levicorpus dociera do wtyczki i dlaczego NPC nie został wybity. **Domyślnie panel jest wyłączony.**
+
+Panel pokazuje: **rozpoznane trafienia**, **nadane impulsy**, **wykryte lądowania**, a także liczby przypadków **braku aktywnej fizyki**, **braku `zCRigidBody`** i **przeszkód na drodze**. Dane nie są wysyłane ani zapisywane do pliku. Po ponownym naciśnięciu F10 panel znika.
+
+- Jeden rzeczywisty trafiony NPC może dać **jedno zgłoszenie diagnostyczne na czar** — wielokrotne obrażenia z tego samego pocisku nie powinny zawyżać liczników.
+- Otwarcie ekwipunku, wczytywanie i scenki przerywają obserwację trwającego lotu. Zapobiega to odtwarzaniu animacji lądowania podczas menu.
+- Dodano testy `union/tests/test_impact_telemetry.cpp` obok istniejących testów czasu lotu i przeszkód.
+- Wciąż należy sprawdzić w prawdziwej instalacji Gothic I, czy konkretne NPC mają natywną fizykę. Zielona kompilacja **nie jest takim testem**.
+
+**Test lokalny:** Po `Reparse Scripts` i ponownym zbudowaniu `ParryHotter.mod` uruchom profil PLAY, naciśnij **F10**, wybierz **2** lub **5**, przytrzymaj PPM i kliknij LPM podczas celowania w człowieka. Zwróć uwagę na zmiany liczników. Panel F10 jest tylko dodatkową diagnostyką, sześć ikon i celownik powinny pozostać widoczne niezależnie od niego.
 
 ## Etap 4d: bezpieczne lądowanie i powrót do AI (DEV 0.9)
 
