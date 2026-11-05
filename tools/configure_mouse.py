@@ -35,14 +35,35 @@ def set_existing_option(path: Path, key: str, value: str) -> bool:
     return True
 
 
+
+def read_option(path: Path, key: str) -> str | None:
+    if not path.is_file():
+        return None
+    content = path.read_bytes().decode("latin-1")
+    expression = re.compile(
+        r"(?im)^(?![ \\t]*[;#])[ \\t]*" + re.escape(key)
+        + r"[ \\t]*=[ \\t]*([^\\r\\n]*)"
+    )
+    matches = expression.findall(content)
+    return matches[0].strip() if len(matches) == 1 else None
+
+
+def restore_legacy_gothic2_control(path: Path) -> bool:
+    backup = path.with_name(path.name + ".parryhotter-original")
+    old_value = read_option(backup, "Gothic2_Control")
+    current_value = read_option(path, "Gothic2_Control")
+    # Previous versions of ParryHotter changed 0 => 1. Only revert that
+    # precise case; preserve user changes and every other SystemPack option.
+    if old_value == "0" and current_value == "1":
+        return set_existing_option(path, "Gothic2_Control", "0")
+    return False
+
+
 def configure_mouse(game: Path) -> list[Path]:
     game = game.expanduser().resolve()
     system = game / "System"
     modified = []
-    config = (
-        ("SystemPack.ini", "Gothic2_Control", "1"),
-        ("Gothic.ini", "enableMouse", "1"),
-    )
+    config = (("Gothic.ini", "enableMouse", "1"),)
     for filename, key, value in config:
         # Case-insensitive file matching, but don't create new foreign options
         # if the file doesn't already expose this setting.
@@ -52,6 +73,13 @@ def configure_mouse(game: Path) -> list[Path]:
         ) if system.is_dir() else None
         if source and set_existing_option(source, key, value):
             modified.append(source)
+    # Revert only *our own* legacy global G2 controls change, if backed up.
+    systempack = next(
+        (p for p in system.iterdir() if p.name.lower() == "systempack.ini"),
+        None
+    ) if system.is_dir() else None
+    if systempack and restore_legacy_gothic2_control(systempack):
+        modified.append(systempack)
     return modified
 
 
@@ -66,10 +94,10 @@ def main():
     args = parser.parse_args()
     changed = configure_mouse(args.game)
     for path in changed:
-        print(f"Ustawiono prosty klik mysza: {path}")
+        print(f"Zaktualizowano ustawienia myszy: {path}")
     if not changed:
-        print("Brak zmian. Upewnij sie, ze opcje enableMouse i Gothic2_Control istnieja w plikach INI.")
-    print("Wybierz rune w grze i nacisnij LPM: tryb Gothic2_Control=1.")
+        print("Brak zmian: mysz juz wlaczona lub klucz enableMouse nie istnieje.")
+    print("Sterowanie PPM + LPM wymaga eksperymentalnej wtyczki Union w profilu PLAY.")
     print("Rolka myszy nie wybiera jeszcze naszych 6 zaklec.")
 
 
