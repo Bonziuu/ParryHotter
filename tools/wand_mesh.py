@@ -275,7 +275,7 @@ def generate_wand(mesh_path: Path, texture_path: Path,
             png_to_tga(original_png, tmp_tga)
         else:
             fallback_texture(tmp_tga)
-        if tmp_3ds.stat().st_size < 128 or tmp_tga.stat().st_size < 128:
+        if tmp_3ds.stat().st_size < 128 or tmp_tga.stat().st_size < 24:
             raise WandError("Generated wand files are too small")
         tmp_3ds.replace(mesh_path)
         tmp_tga.replace(texture_path)
