@@ -3,7 +3,8 @@
 
 Downloads pinned Gothic 1 Unified-PL source scripts, keeps a full backup,
 installs local Parry Hotter changes, copies the GothicStarter profile, and
-optionally opens GothicStarter_mod.exe. Does NOT download game assets/models.
+optionally opens GothicStarter_mod.exe. Attempts to stage a private Harry model
+archive for later conversion, but does not install an unconverted FBX into Gothic.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.install import PatchError, install
+from tools.model_asset import ModelAssetError, prepare_model, MODEL_PAGE
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -177,6 +179,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Parry Hotter — Windows one-click setup")
     parser.add_argument("--game", type=Path, default=DEFAULT_GAME)
     parser.add_argument("--zip", dest="zip_path", type=Path, help="Offline test with Unified-PL ZIP")
+    parser.add_argument("--model-zip", type=Path, help="Previously downloaded private HP2 Harry model ZIP")
     parser.add_argument("--run", action="store_true", help="Open GothicStarter_mod.exe after setup")
     args = parser.parse_args()
 
@@ -186,6 +189,17 @@ def main() -> int:
         print(f"BLAD INSTALACJI: {exc}", file=sys.stderr)
         print("Sprawdz sciezke i polaczenie internetowe; nie uruchamiaj gry.", file=sys.stderr)
         return 1
+
+    # Never publish or place raw copyrighted FBX/texture files inside game data.
+    # The game needs an ASC model with a compatible human skeleton.
+    print("Sprawdzam prywatny model Harry'ego (HP2 PC)...")
+    try:
+        prepared = prepare_model(args.game, args.model_zip)
+        print(f"Przygotowano zrodla modelu do konwersji: {prepared}")
+    except (ModelAssetError, OSError, zipfile.BadZipFile) as exc:
+        print(f"Nie udalo sie przygotowac modelu: {exc}")
+        print(f"Opcjonalnie pobierz oryginalny ZIP tutaj: {MODEL_PAGE}")
+        print("Uruchom ponownie: py -3 tools/model_asset.py --zip SCIEZKA_DO_ZIP")
 
     print("W GothicStarter_mod wybierz 'Parry Hotter (DEV)' i reparse scripts.")
     print("Rozpocznij NOWA GRE. Model Harry'ego i fizyka ragdoll NIE sa jeszcze dodane.")
