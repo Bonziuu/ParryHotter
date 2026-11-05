@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
-MODEL_SOURCE = "https://models.spriters-resource.com/media/assets/292/295618.zip"
+MODEL_SOURCE = "https://models.spriters-resource.com/media/assets/292/295618.zip?updated=1755499167"
 MODEL_PAGE = (
     "https://models.spriters-resource.com/pc_computer/"
     "harrypotterthechamberofsecrets/asset/295618/"
