@@ -8,9 +8,9 @@ Na przesłanym screenie Harry trzyma różdżkę, a przy celu świeci symbol zak
 
 | Klawisz | Zaklęcie | Symbol |
 | --- | --- | --- |
-| 1 | Flipendo | błękitny wir |
+| 1 | Flipendo | błękitna fala odrzutu |
 | 2 | Levicorpus | fioletowy hak |
-| 3 | Rictusempra | złota fala |
+| 3 | Rictusempra | ognista spirala jak na screenie z HP2 |
 | 4 | Expelliarmus | krzyżujące się różdżki |
 | 5 | Bumbardo Maximus | pomarańczowy wybuch |
 | 6 | Avada Kedavra | zielony piorun |
