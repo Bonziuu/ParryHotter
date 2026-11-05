@@ -34,7 +34,7 @@ class DoctorTests(unittest.TestCase):
         (src / "Content" / "Cutscene").mkdir()
         (src / "Content" / "Cutscene" / "OU.bin").write_bytes(b"PL")
         (src / "_compiled").mkdir()
-        (src / "_compiled" / "Gothic.dat").write_bytes(b"PH_RUNE_FLIPENDO PH_SELECTED_SPELL\x00")
+        (src / "_compiled" / "Gothic.dat").write_bytes(b"PH_RUNE_FLIPENDO PH_SELECTED_SPELL PH_UNION_LOADED\x00")
         textures = self.game / "_work" / "DATA" / "Textures"
         textures.mkdir()
         for name in REQUIRED_TEXTURES:
@@ -42,6 +42,7 @@ class DoctorTests(unittest.TestCase):
         result = report(self.game)
         self.assertIn("[OK] Runa Flipendo", result)
         self.assertIn("[OK] Mostek HUD/Daedalus PH_SELECTED_SPELL", result)
+        self.assertIn("[OK] Ochrona zwyklych czarow Gothic PH_UNION_LOADED", result)
         self.assertIn("[OK] Ikony HUD: 14/14", result)
         self.assertIn("enableMouse = 1", result)
         self.assertIn("Gothic2_Control = 0", result)
