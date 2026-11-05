@@ -719,6 +719,12 @@ cexport void Game_Loop() { GameTick(); }
 cexport void Game_PostLoop() {}
 cexport void Game_MenuLoop() {}
 cexport void Game_SaveBegin() {
+    // Exit casting mode before the game records its save. Both mouse
+    // buttons must be released before re-arming on return.
+    gController.Step({});
+    if (gAiming) LowerWand();
+    gCamera.Restore(zCAICamera::current);
+    HideDiagnostics();
     // Never serialize PH_UNION_LOADED=1 into a save used later without the
     // plugin. DEV mode should still recognize its own six rune placeholders.
     ResetSelectedSpellForScript();
@@ -768,7 +774,15 @@ cexport void Game_LoadEnd_ChangeLevel() {
 }
 cexport void Game_LoadBegin_Trigger() {}
 cexport void Game_LoadEnd_Trigger() {}
-cexport void Game_Pause() { gCamera.Restore(zCAICamera::current); }
+cexport void Game_Pause() {
+    // The game loop may stop during pause and never call GameTick's
+    // !gameplay branch. Cancel pending input here, too.
+    gController.Step({});
+    if (gAiming) LowerWand();
+    ResetSelectedSpellForScript();
+    HideDiagnostics();
+    gCamera.Restore(zCAICamera::current);
+}
 cexport void Game_Unpause() {}
 cexport void Game_DefineExternals() {}
 cexport void Game_ApplyOptions() {}
