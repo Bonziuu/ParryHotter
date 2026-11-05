@@ -581,10 +581,14 @@ cexport void Game_Loop() { GameTick(); }
 cexport void Game_PostLoop() {}
 cexport void Game_MenuLoop() {}
 cexport void Game_SaveBegin() {
-    // Do not persist a pending 7-second hit tag in a save.
+    // Never serialize PH_UNION_LOADED=1 into a save used later without the
+    // plugin. DEV mode should still recognize its own six rune placeholders.
     ResetSelectedSpellForScript();
+    SetUnionPresence(false);
 }
-cexport void Game_SaveEnd() {}
+cexport void Game_SaveEnd() {
+    SetUnionPresence(true);
+}
 cexport void Game_LoadBegin_NewGame() {
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
     ResetSelectedSpellForScript();
