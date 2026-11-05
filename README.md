@@ -8,6 +8,18 @@ To nadal **prototyp źródłowy**, a nie kompletnie sprawdzony mod `.mod`. Nie m
 
 Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utworzy `ParryHotter_diagnostics.txt` obok pliku BAT i sprawdzi w trybie tylko do odczytu: profile DEV/PLAY, plik `.mod`, kompilację zaklęć, polskie OU.bin, wszystkie 14 ikon oraz ustawienia myszy. Możesz przesłać raport, jeśli gra zachowuje się nieprawidłowo. Raport **nie sprawdza rozgrywki**, fizyki ani ruchów Harry'ego.
 
+## Etap 4c: pierwsza fizyka trafień NPC (eksperymentalna)
+
+- Wtyczka Union przechwytuje **rzeczywiste trafienie** przez natywny `oCNpc::OnDamage_Hit`, dopiero po wykonaniu oryginalnej procedury obrażeń Gothic 1. Nie porusza NPC za samo kliknięcie LPM ani za najazd celownikiem.
+- Przed impulsem weryfikuje: **żywy ludzki NPC, gracz jako atakujący, oczekiwany identyfikator czaru, aktualny cel rzuconego zaklęcia** oraz brak wcześniejszego impulsu z tego samego rzutu.
+- **Levicorpus:** ograniczony impuls do góry (maksymalnie 165 jednostek prędkości z aktualnego stanu). **Bumbardo Maximus:** mocniejszy impuls w górę i od gracza (maksymalnie 285 w pionie i około 155 w poziomie).
+- Silnik sprawdza **przeszkody nad NPC i przed nim**; przy niskim suficie nie wywołuje wybicia pionowego, a przy przeszkodzie z przodu nie dodaje pędu poziomego.
+- **Bez przełączania trybu kolizji i grawitacji:** dodatkowy impuls działa wyłącznie na NPC, który *już ma aktywne* natywne ciało fizyczne `zCRigidBody` i `physicsEnabled`. Jeśli go nie ma, pozostają skryptowe reakcje oraz oryginalne efekty Gothica. To celowo ostrożne zachowanie, a nie gwarancja wyskoku każdego NPC.
+- Podczas zapisu, zmiany lokacji i wczytywania plugin usuwa zapamiętany cel i stan oczekującego pocisku.
+- **Ochrona zwykłych zaklęć:** symbol `PH_UNION_LOADED` wyłącza starszą identyfikację wszystkich czarów gracza jako Parry Hotter w profilu PLAY. W DEV bez DLL pozostaje podstawowy tryb skryptowy.
+
+**Braki:** nie ma jeszcze rzeczywistego odwrócenia NPC do góry nogami ani długiego zawieszenia w powietrzu; obracanie podczas Bumbardo i pełny ragdoll wymagają dodatkowej integracji z animacjami. Samo pozytywne przejście kompilacji i testów nie dowodzi, że wszystkie postacie mają aktywną fizykę w Gothic 1.
+
 ## Etap 4b: rozpoznawanie czaru przy trafieniu i ochrona podstawowego Gothica (v0.7)
 
 - **Wtyczka Union zapisuje numer rzucanego czaru** do symbolu Daedalus `PH_SELECTED_SPELL` przed faktycznym `Spell_Cast()`. Skrypty trafienia odróżniają dzięki temu wybrany czar Parry od innych zaklęć korzystających z tych samych bazowych efektów Gothic 1.
