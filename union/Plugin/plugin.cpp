@@ -79,6 +79,43 @@ namespace {
     int gShownTargetSlot = -1;
     int gActiveSlot = 0;
     bool gAttached = false;
+    zCModel* gWandModel = nullptr;
+    zCModelNodeInst* gWandSocket = nullptr;
+    zCVisual* gWandVisual = nullptr;
+    // Only render on a native, unused right-hand attachment point. Never
+    // replace an equipped melee weapon or persistent character mesh.
+    void DetachWand() {
+        if (player && gWandModel && player->GetModel() == gWandModel &&
+            gWandSocket && gWandSocket->nodeVisual == gWandVisual) {
+            gWandModel->SetNodeVisual(gWandSocket, nullptr, 0);
+        }
+        gWandModel = nullptr;
+        gWandSocket = nullptr;
+        gWandVisual = nullptr;
+    }
+
+    void AttachWand() {
+        if (!player) return;
+        zCModel* model = player->GetModel();
+        if (!model) return;
+        if (gWandModel == model && gWandSocket &&
+            gWandSocket->nodeVisual == gWandVisual) return;
+        // When engine changes the model (loading/armor change) discard stale
+        // socket pointers, never dereference a previous model's bone.
+        gWandModel = nullptr;
+        gWandSocket = nullptr;
+        gWandVisual = nullptr;
+        zCModelNodeInst* hand = model->SearchNode(zSTRING("ZS_RIGHTHAND"));
+        if (!hand || hand->nodeVisual) return;
+        zCVisual* visual = zCVisual::LoadVisual(zSTRING("PH_WAND.3DS"));
+        if (!visual) return;
+        model->SetNodeVisual(hand, visual, 0);
+        if (hand->nodeVisual == visual) {
+            gWandModel = model;
+            gWandSocket = hand;
+            gWandVisual = visual;
+        }
+    }
 
     zCView* NewSprite(int x, int y, int width, int height, const char* name) {
         zCView* view = new zCView(x, y, x + width, y + height);
@@ -198,9 +235,11 @@ namespace {
         const int id = kGothicSpellIds[spellSlot];
         player->ReadySpell(id, 0);
         gAiming = true;
+        AttachWand();
     }
 
     void LowerWand() {
+        DetachWand();
         if (player && gAiming) player->UnreadySpell();
         gAiming = false;
     }
@@ -252,6 +291,9 @@ namespace {
         if (out.startAim || (hotkey && right)) {
             RaiseWand(out.selected);
         }
+        if (out.aiming && gAiming) {
+            AttachWand(); // Model may have changed with a clothing swap.
+        }
         if (out.aiming && gAiming && player->GetSpellBook()) {
             // Gothic itself decides mana investment and cast readiness.
             player->GetSpellBook()->Spell_Invest();
@@ -267,6 +309,7 @@ cexport void Game_Entry() {}
 cexport void Game_Init() { gController.Reset(); }
 cexport void Game_Exit() {
     gCamera.Restore(zCAICamera::current);
+    if (gAiming) LowerWand();
     RemoveHud();
 }
 cexport void Game_PreLoop() {}
@@ -275,11 +318,23 @@ cexport void Game_PostLoop() {}
 cexport void Game_MenuLoop() {}
 cexport void Game_SaveBegin() {}
 cexport void Game_SaveEnd() {}
-cexport void Game_LoadBegin_NewGame() { gCamera.Forget(); RemoveHud(); }
+cexport void Game_LoadBegin_NewGame() {
+    if (gAiming) LowerWand();
+    gCamera.Forget();
+    RemoveHud();
+}
 cexport void Game_LoadEnd_NewGame() { gController.Reset(); }
-cexport void Game_LoadBegin_SaveGame() { gCamera.Forget(); RemoveHud(); }
+cexport void Game_LoadBegin_SaveGame() {
+    if (gAiming) LowerWand();
+    gCamera.Forget();
+    RemoveHud();
+}
 cexport void Game_LoadEnd_SaveGame() { gController.Reset(); }
-cexport void Game_LoadBegin_ChangeLevel() { gCamera.Forget(); RemoveHud(); }
+cexport void Game_LoadBegin_ChangeLevel() {
+    if (gAiming) LowerWand();
+    gCamera.Forget();
+    RemoveHud();
+}
 cexport void Game_LoadEnd_ChangeLevel() { gController.Reset(); }
 cexport void Game_LoadBegin_Trigger() {}
 cexport void Game_LoadEnd_Trigger() {}
