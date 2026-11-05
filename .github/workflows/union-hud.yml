@@ -46,7 +46,7 @@ jobs:
       - name: Build native G1 Release / Win32 DLL
         shell: pwsh
         run: |
-          msbuild 'sdk/UnionProject.sln' /m /p:Configuration="G1 Release" /p:Platform=Win32 /v:minimal
+          msbuild 'sdk/UnionProject/UnionProject.vcxproj' /m /p:Configuration="G1 Release" /p:Platform=Win32 /v:minimal
       - name: Show built DLL candidates
         shell: pwsh
         run: |
