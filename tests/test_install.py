@@ -34,7 +34,8 @@ class InstallTests(unittest.TestCase):
             'func void B_AssessMagic_IceCube()\n{\n    freeze();\n};\n'
             'func void B_AssessMagic_ThunderBall()\n{\n    foo();\n};\n'
             'func void B_AssessMagic_Breathofdeath()\n{\n    bar();\n};\n'
-            'func void B_AssessMagic_Berzerk()\n{\n    baz();\n};\n',
+            'func void B_AssessMagic_Berzerk()\n{\n    baz();\n};\n'
+            'func void B_AssessMagic_Stormfist()\n{\n    gust();\n};\n',
             encoding="latin-1",
         )
         (self.content / "Magic" / "Spells_Params.d").write_text(
@@ -55,6 +56,12 @@ class InstallTests(unittest.TestCase):
         self.assertIn("PH_OnLevicorpusHit(); return;", hooks)
         self.assertEqual(hooks.count("PH_OnLevicorpusHit();"), 1)
         self.assertIn("PH_OnExpelliarmusHit();", hooks)
+        self.assertIn("PH_IsSelectedSpell(2)", hooks)
+        self.assertIn("PH_IsSelectedSpell(3)", hooks)
+        self.assertIn("PH_IsSelectedSpell(4)", hooks)
+        self.assertIn("PH_IsSelectedSpell(5)", hooks)
+        self.assertIn("PH_IsSelectedSpell(6)", hooks)
+        self.assertIn("PH_OnBumbardoHit();", hooks)
         self.assertIn("Magic\\ParryHotter.d", (self.content / "Gothic.src").read_text(encoding="latin-1"))
         self.assertEqual(
             (self.content / "Story" / "NPC" / "PC_Hero.d.parryhotter.bak").read_text(encoding="latin-1").count("Parry Hotter"),
@@ -89,6 +96,34 @@ class InstallTests(unittest.TestCase):
         self.assertEqual([p.name for p in install(self.content)], ["PC_Hero.d"])
         fixed = hero_path.read_text(encoding="latin-1")
         self.assertEqual(fixed.count('Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");'), 1)
+        self.assertEqual(install(self.content), [])
+
+    def test_upgrades_legacy_hooks_without_double_hit(self):
+        path = self.content / "Magic" / "B_AssessMagic.d"
+        original = path.read_text(encoding="latin-1")
+        legacy = {
+            "ThunderBall": "PH_OnExpelliarmusHit();",
+            "Breathofdeath": "PH_OnAvadaHit();",
+            "IceCube": "if (Npc_IsPlayer(other) && C_NpcIsHuman(self)) { PH_OnLevicorpusHit(); return; };",
+            "Berzerk": "if (Npc_IsPlayer(other) && C_NpcIsHuman(self)) { PH_OnRictusempraHit(); return; };",
+        }
+        for function, callback in legacy.items():
+            start = "func void B_AssessMagic_" + function + "()\\n{"
+            self.assertIn(start, original)
+            original = original.replace(start, start + "\\n    " + callback)
+        path.write_text(original, encoding="latin-1")
+        install(self.content)
+        patched = path.read_text(encoding="latin-1")
+        for callback in (
+            "PH_OnExpelliarmusHit();", "PH_OnAvadaHit();",
+            "PH_OnLevicorpusHit();", "PH_OnRictusempraHit();",
+            "PH_OnBumbardoHit();",
+        ):
+            self.assertEqual(patched.count(callback), 1, callback)
+        self.assertNotIn(
+            "if (Npc_IsPlayer(other) && C_NpcIsHuman(self)) { PH_OnRictusempraHit();",
+            patched,
+        )
         self.assertEqual(install(self.content), [])
 
     def test_second_install_is_noop(self):
