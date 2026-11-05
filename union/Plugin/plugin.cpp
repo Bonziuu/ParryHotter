@@ -669,7 +669,7 @@ namespace {
         if (out.stopAim) {
             LowerWand();
         }
-        if (out.startAim || (hotkey && right)) {
+        if (out.startAim || (hotkey && out.aiming)) {
             RaiseWand(out.selected);
         }
         if (out.aiming && gAiming) {
