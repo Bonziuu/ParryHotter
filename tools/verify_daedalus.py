@@ -68,10 +68,10 @@ def main() -> int:
                 str(compiler), str(content / "Gothic.src"),
                 "--output-dat", str(output),
             ],
-            cwd=temp, capture_output=True, text=True, timeout=240,
+            cwd=temp, capture_output=True, text=False, timeout=240,
         )
-        print("Daedalus stdout:\n" + process.stdout[-12000:])
-        print("Daedalus stderr:\n" + process.stderr[-12000:])
+        print("Daedalus stdout:\n" + (process.stdout or b"").decode("utf-8", "replace")[-12000:])
+        print("Daedalus stderr:\n" + (process.stderr or b"").decode("utf-8", "replace")[-12000:])
         if process.returncode or not output.is_file():
             raise PatchError(f"Daedalus compiler failed (exit={process.returncode})")
         compiled = output.read_bytes()
