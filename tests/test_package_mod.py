@@ -63,9 +63,11 @@ class PackagingTests(unittest.TestCase):
             self.assertIn("_work/Data/Scripts/Content/Cutscene/Ou.bin", vm)
             self.assertIn("System/Autorun/ParryHotterHUD-G1.dll", vm)
             self.assertIn("_work/Data/Textures/PH_TARGET_RICTUSEMPRA.TGA", vm)
+            self.assertIn("_work/Data/Meshes/PH_WAND.3DS", vm)
+            self.assertIn("_work/Data/Textures/PH_WAND.TGA", vm)
             self.assertTrue((stage / "System" / "Autorun" / "ParryHotterHUD-G1.dll").is_file())
             textures = list((stage / "_work" / "Data" / "Textures").glob("*.TGA"))
-            self.assertEqual(len(textures), 14)
+            self.assertEqual(len(textures), 15)
 
             (stage / "ParryHotter.mod").write_bytes(b"mocked vdf content" * 80)
             return mock.Mock(returncode=0, stdout="ok", stderr="")
@@ -111,7 +113,7 @@ class PackagingTests(unittest.TestCase):
             self.assertIn("_work/Data/Textures/PH_HARRY_TEX3.TGA", vm)
             self.assertEqual((stage / "_work/Data/Anims/PH_HARRY.ASC").read_bytes(),
                              b"*GEOMOBJECT *MESH")
-            self.assertEqual(len(list((stage / "_work/Data/Textures").glob("*.TGA"))), 18)
+            self.assertEqual(len(list((stage / "_work/Data/Textures").glob("*.TGA"))), 19)
             (stage / "ParryHotter.mod").write_bytes(b"mocked vdf content" * 80)
             return mock.Mock(returncode=0, stdout="", stderr="")
 
