@@ -8,6 +8,15 @@ To nadal **prototyp źródłowy**, a nie kompletny mod `.mod`. Nie ma jeszcze mo
 
 Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utworzy `ParryHotter_diagnostics.txt` obok pliku BAT i sprawdzi w trybie tylko do odczytu: profile DEV/PLAY, plik `.mod`, kompilację zaklęć, polskie OU.bin, wszystkie 14 ikon oraz ustawienia myszy. Możesz przesłać raport, jeśli gra zachowuje się nieprawidłowo. Raport **nie sprawdza rozgrywki**, fizyki ani ruchów Harry'ego.
 
+## Etap 4/5: bezpieczniejsze zaklęcia i widoczna gotowość HUD (DEV)
+
+- **Levicorpus:** po trafieniu człowieka z czaru IceCube uruchamia się osobny stan `ZS_PH_Levicorpus` na około 4 sekundy, bez oryginalnych obrażeń zamrażania. NPC ma potem powrócić do zwykłej rutyny. **To na razie zastępcza animacja, nie fizyczne zawieszenie głową w dół.**
+- **HUD:** dla sześciu slotów dodano osobne odnowienie (Flipendo 0,6 s; Levicorpus 3,6 s; Rictusempra 2,5 s; Expelliarmus 1,9 s; Bumbardo Maximus 2,8 s; Avada Kedavra 5,2 s).
+- **Mana:** mod odczytuje stan many z Gothic 1; nie pobiera jej drugi raz. Niedostępne ikony mają być przygaszone. Gdy gra pobierze manę w trakcie przygotowania zaklęcia, mod nie powinien blokować już przygotowanego rzutu.
+- **Testy:** dodałem niezależne testy C++ odnowienia i kosztów many, a istniejący test kompilatora Daedalusa obejmuje nowy stan Levicorpus. Kwestia faktycznej animacji i obsługi przez Gothic 1 wymaga testowania w silniku.
+
+**Czego to jeszcze nie zapewnia:** prawdziwej lewitacji 3D, fizyki eksplozji Bumbardo, komicznych animacji Rictusempra ani gotowego modelu Harry'ego z peleryną.
+
 ## Etap 3/5: różdżka w ręce (nowe — Gothic 1 Union, eksperymentalne)
 
 Dodałem osobny model różdżki:
