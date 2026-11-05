@@ -295,7 +295,7 @@ namespace {
         auto out = gController.Step(input);
 
         const auto now = ParryHotter::SpellCooldown::Clock::now();
-        const int mana = player->GetAttribute(oCNpc::NPC_ATR_MANA);
+        const int mana = player->GetAttribute(NPC_ATR_MANA);
         ShowHud();
         ShowSlotAvailability(mana, now);
         ShowSelection(out.selected);
@@ -322,7 +322,7 @@ namespace {
         if (out.cast && gAiming && gCooldown.Ready(out.selected, mana, now)) {
             if (CastAtFocusedNpc()) {
                 gCooldown.Record(out.selected, mana, now);
-                ShowSlotAvailability(player->GetAttribute(oCNpc::NPC_ATR_MANA), now);
+                ShowSlotAvailability(player->GetAttribute(NPC_ATR_MANA), now);
             }
         }
     }
