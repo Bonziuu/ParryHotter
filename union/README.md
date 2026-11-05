@@ -31,6 +31,14 @@ Oryginalne Harry Potter 1/2 PC mają inne sterowanie (LPM do ładowania i zwolni
 
 **Stan:** kod natywnej DLL i testy automatyczne mogą przechodzić, ale działanie w grze musi zostać potwierdzone. W razie problemu użyj zwykłego profilu Gothic lub profilu DEV bez DLL.
 
+## Mostek zdarzeń trafienia do Daedalusa (DEV 0.7)
+
+HUD Union zapisuje numer ostatniego **rzucanego** zaklęcia w `PH_SELECTED_SPELL` (1–6), odczytywanym przez `B_AssessMagic.d`. Dzięki temu trafienia od Levicorpus, Rictusempra, Expelliarmus, Bumbardo i Avada mogą być rozpoznawane odrębnie od czarów bazowych, które używają tych samych identyfikatorów ZenGin. Tag wygasa po 7 sekundach i jest czyszczony przy zmianie świata; to rozwiązanie prototypowe dla pojedynczego ostatnio rzuconego zaklęcia — nie obsługuje idealnie wielu pocisków jednocześnie.
+
+**Bumbardo Maximus** zachowuje odrzut Stormfist i dodaje krótką reakcję wstrząsu trafionego ludzkiego NPC. Brakuje dodatkowego bezpiecznego wyrzucenia/obrotu z wykrywaniem kolizji i testu prawdziwego trafienia. Słabszych NPC może zabić normalny `BreathOfDeath` przed animacją Avada; nie zmniejszamy obrażeń globalnie, bo wpływałoby to na cały świat.
+
+Po aktualizacji skryptów **Reparse Scripts jest obowiązkowy**. Lokalny builder odmówi zapakowania `Gothic.dat` bez `PH_SELECTED_SPELL`. W wersji DEV bez wtyczki Union zostaje stary sposób identyfikacji czaru bazowego. Nie gwarantuje to odróżnienia run od innych bazowych zaklęć.
+
 ## Różdżka (nowy etap)
 
 Podczas przytrzymania PPM wtyczka próbuje zamocować `PH_WAND.3DS` do istniejącego gniazda kości `ZS_RIGHTHAND`. Jeśli gniazdo ma już przedmiot, niczego nie nadpisuje; po zwolnieniu PPM odłącza własny model. Lokalna paczka `.mod` zawiera `_work/Data/Meshes/PH_WAND.3DS` i `_work/Data/Textures/PH_WAND.TGA`, przygotowane przez `tools/wand_asset.py`.
