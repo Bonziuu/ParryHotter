@@ -31,6 +31,20 @@ Oryginalne Harry Potter 1/2 PC mają inne sterowanie (LPM do ładowania i zwolni
 
 **Stan:** kod natywnej DLL i testy automatyczne mogą przechodzić, ale działanie w grze musi zostać potwierdzone. W razie problemu użyj zwykłego profilu Gothic lub profilu DEV bez DLL.
 
+## Etap 4e — diagnostyka fizyki w samej grze (DEV 0.10)
+
+Naciśnij **F10** podczas testowej rozgrywki w profilu PLAY. Pojawi się pomocniczy panel liczący:
+- rozpoznane trafienia Levicorpus/Bumbardo,
+- impulsy faktycznie nadane natywnej fizyce,
+- wykryte lądowania,
+- pominięcia z powodu wyłączonej fizyki NPC, braku `zCRigidBody` lub zablokowanej drogi.
+
+Naciśnij **F10** ponownie, aby zamknąć panel. Domyślnie nie jest widoczny. Jest to element diagnostyczny w silniku `zCView`, bez zewnętrznych okien, bez wysyłania danych ani zapisów na dysku. Każde rozpoznane trafienie jest liczone tylko raz na rzut czaru.
+
+Przy otwarciu ekwipunku, rozpoczęciu cutscenki czy wczytywaniu świata wtyczka przerywa niedokończoną obserwację lotu. Nie próbuje wówczas odtwarzać animacji lądowania. Zabezpiecza też przed wielokrotnym przykładaniem impulsu z obrażeń rozłożonych w czasie.
+
+**Interpretacja:** „fizyka wyłączona” oznacza, że NPC nie miał natywnej fizyki już w momencie trafienia. Celowo jej nie aktywujemy z kodu bez sprawdzenia w Gothic I. Licznik zerowy po prawidłowym rzuceniu czaru może oznaczać brak natywnego zdarzenia `OnDamage_Hit`, inną kolejność wywołań lub brak rzeczywistego trafienia — potrzebny test w grze.
+
 ## Etap 4d — wykrywanie lądowania (DEV 0.9)
 
 Wtyczka obserwuje NPC najwyżej przez 4,6 sekundy **po skutecznym impulsie `zCRigidBody`**. Wykrycie bezpiecznego podłoża wymaga promienia od NPC w dół, normalnej wielokąta, małej odległości i stabilnej prędkości pionowej w dwóch kolejnych klatkach (po co najmniej 450 ms od trafienia). Dopiero wtedy Bumbardo próbuje uruchomić `T_STAND_2_LIGHTNING_VICTIM` jako krótką reakcję na lądowanie.
