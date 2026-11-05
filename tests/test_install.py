@@ -61,7 +61,7 @@ class InstallTests(unittest.TestCase):
         install(self.content)
         hero_path = self.content / "Story" / "NPC" / "PC_Hero.d"
         source = hero_path.read_text(encoding="latin-1")
-        source = source.replace('    Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");\\n', "")
+        source = source.replace('    Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");\n', "")
         hero_path.write_text(source, encoding="latin-1")
         self.assertEqual(install(self.content), [hero_path])
         fixed = hero_path.read_text(encoding="latin-1")
