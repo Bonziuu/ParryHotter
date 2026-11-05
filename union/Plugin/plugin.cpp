@@ -79,6 +79,7 @@ namespace {
     zCView* gSelection = nullptr;
     zCView* gReticle = nullptr;
     bool gAiming = false;
+    bool gManaPrepared = false;
     int gShownTargetSlot = -1;
     int gActiveSlot = 0;
     bool gAttached = false;
@@ -164,6 +165,7 @@ namespace {
         gShownTargetSlot = -1;
         gActiveSlot = 0;
         gAiming = false;
+        gManaPrepared = false;
         gSlotDimmed.fill(-1);
         gController.Reset();
     }
@@ -181,7 +183,9 @@ namespace {
 
     void ShowSlotAvailability(int mana, ParryHotter::SpellCooldown::TimePoint now) {
         for (int i = 0; i < 6; ++i) {
-            const int dim = gCooldown.Ready(i, mana, now) ? 0 : 1;
+            const bool preparing = gAiming && gManaPrepared &&
+                                    gController.Selected() == i;
+            const int dim = (preparing || gCooldown.Ready(i, mana, now)) ? 0 : 1;
             if (gSlots[i] && gSlotDimmed[i] != dim) {
                 // Visual availability, never removes an icon from HUD.
                 gSlots[i]->SetTransparency(dim ? 145 : 0);
@@ -248,8 +252,22 @@ namespace {
     // engine variations (Steam + Union) may require an event hook.
     void RaiseWand(int spellSlot) {
         if (!player) return;
+        const int mana = player->GetAttribute(NPC_ATR_MANA);
+        const auto now = ParryHotter::SpellCooldown::Clock::now();
+        // Check mana BEFORE Gothic invests it. Do not re-check during casting.
+        if (!gCooldown.Ready(spellSlot, mana, now)) return;
+        if (gAiming) {
+            DetachWand();
+            player->UnreadySpell();
+        }
         const int id = kGothicSpellIds[spellSlot];
-        player->ReadySpell(id, 0);
+        const int ok = player->ReadySpell(id, 0);
+        if (!ok) {
+            gManaPrepared = false;
+            gAiming = false;
+            return;
+        }
+        gManaPrepared = true;
         gAiming = true;
         AttachWand();
     }
@@ -258,6 +276,7 @@ namespace {
         DetachWand();
         if (player && gAiming) player->UnreadySpell();
         gAiming = false;
+        gManaPrepared = false;
     }
 
     bool CastAtFocusedNpc() {
@@ -314,14 +333,22 @@ namespace {
         if (out.aiming && gAiming) {
             AttachWand(); // Model may have changed with a clothing swap.
         }
-        if (out.aiming && gAiming && player->GetSpellBook() &&
+        if (out.aiming && !gManaPrepared &&
             gCooldown.Ready(out.selected, mana, now)) {
-            // Mana is deducted by Gothic, never by the cooldown controller.
+            // Holding PPM can re-arm after the previous cooldown expires.
+            RaiseWand(out.selected);
+        }
+        if (out.aiming && gAiming && gManaPrepared && player->GetSpellBook() &&
+            gCooldown.ReadyByTime(out.selected, now)) {
+            // Gothic invests mana internally. Keep the prepared cast valid
+            // even if the visible mana counter reaches zero mid-charge.
             player->GetSpellBook()->Spell_Invest();
         }
-        if (out.cast && gAiming && gCooldown.Ready(out.selected, mana, now)) {
+        if (out.cast && gAiming && gManaPrepared &&
+            gCooldown.ReadyByTime(out.selected, now)) {
             if (CastAtFocusedNpc()) {
-                gCooldown.Record(out.selected, mana, now);
+                gCooldown.MarkPreparedCast(out.selected, now);
+                gManaPrepared = false;
                 ShowSlotAvailability(player->GetAttribute(NPC_ATR_MANA), now);
             }
         }
