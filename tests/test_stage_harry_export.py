@@ -26,6 +26,7 @@ class StagingTests(unittest.TestCase):
         content = (
             b"*3DSMAX_ASCIIEXPORT 200\n*GEOMOBJECT {\n*MESH {\n"
             + b'*BITMAP "' + bitmap + b'"\n}\n}\n'
+            + b'*MESH_SOFTSKINVERTS {\n1\n"Bip01 Spine2" 1.0\n}\n'
             + b"// test mesh triangle weights\n" * 20
         )
         (self.original / "PH_HARRY.ASC").write_bytes(content)
