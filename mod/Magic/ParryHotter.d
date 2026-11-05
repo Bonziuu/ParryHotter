@@ -2,6 +2,25 @@
 // Keep this file after Spells_Params.d and before B_AssessMagic.d in Gothic.src.
 // Uses built-in spell IDs and built-in rune models. No assets from Harry Potter games.
 
+// Selected slot comes from the Union HUD at the moment of casting.
+// 0 preserves compatibility with the older DEV mode without Union.
+// Gothic's native spells share our placeholder spell IDs, so distinguish
+// Parry Hotter slots on impact whenever the Union plugin is present.
+VAR INT PH_SELECTED_SPELL;
+
+FUNC INT PH_IsSelectedSpell(VAR INT slot)
+{
+    if (!Npc_IsPlayer(other))
+    {
+        return FALSE;
+    };
+    if ((PH_SELECTED_SPELL == 0) || (PH_SELECTED_SPELL == slot))
+    {
+        return TRUE;
+    };
+    return FALSE;
+};
+
 INSTANCE PH_Rune_Flipendo(C_Item)
 {
     name = "Runa";
@@ -73,7 +92,7 @@ INSTANCE PH_Rune_Bumbardo(C_Item)
     spell = SPL_STORMFIST;
     mag_circle = 1;
     description = "Bumbardo Maximus";
-    TEXT[0] = "Silny odrzut";
+    TEXT[0] = "Wybuch i wstrzas celu";
     TEXT[1] = NAME_Manakosten; COUNT[1] = SPL_SENDCAST_STORMFIST;
 };
 
@@ -148,6 +167,20 @@ FUNC VOID ZS_PH_Levicorpus_End()
     if (!Npc_IsDead(self))
     {
         AI_ContinueRoutine(self);
+    };
+};
+
+// Bumbardo Maximus keeps native Gothic Stormfist push physics. After a
+// successful magic impact, queue a short shock reaction on human targets.
+// This is a distinct experimental effect, NOT a custom ragdoll or flight arc.
+FUNC VOID PH_OnBumbardoHit()
+{
+    if (PH_IsSelectedSpell(5))
+    {
+        if (!Npc_IsDead(self) && C_NpcIsHuman(self))
+        {
+            AI_PlayAni(self, "T_STAND_2_LIGHTNING_VICTIM");
+        };
     };
 };
 
