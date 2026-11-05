@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Build ParryHotter.mod from *locally compiled* Gothic 1 scripts.
+
+This script never redistributes the original game's data in the repository.
+Requires GothicVDFS.exe from the user's Gothic 1 ModKit and the compiled DAT
+created by GothicStarter_mod.exe with 'Reparse Scripts' enabled.
+
+IMPORTANT: Does not compile Daedalus nor retarget Harry automatically.
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
+
+DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
+
+
+class PackagingError(RuntimeError):
+    pass
+
+
+def locate_vdfs(game: Path) -> Path:
+    known = [
+        game / "_work" / "tools" / "VDFS" / "GothicVDFS.exe",
+        game / "_work" / "tools" / "GothicVDFS" / "GothicVDFS.exe",
+        game / "System" / "GothicVDFS.exe",
+        game / "GothicVDFS.exe",
+    ]
+    for path in known:
+        if path.is_file():
+            return path
+    candidates = list(game.glob("**/GothicVDFS.exe"))
+    if not candidates:
+        raise PackagingError(
+            "GothicVDFS.exe nie zostal znaleziony w ModKicie. "
+            "Najpierw zainstaluj pelny Gothic 1 ModKit."
+        )
+    return candidates[0]
+
+
+def validate_compiled(game: Path) -> tuple[Path, Path]:
+    scripts = game / "_work" / "Data" / "Scripts"
+    compiled = scripts / "_compiled" / "Gothic.dat"
+    subtitle = scripts / "Content" / "Cutscene" / "Ou.bin"
+    source = scripts / "Content" / "Magic" / "ParryHotter.d"
+
+    if not compiled.is_file():
+        raise PackagingError("Nie ma skompilowanego Gothic.dat. Wlacz Reparse Scripts.")
+    if not source.is_file():
+        raise PackagingError("Brak zainstalowanego ParryHotter.d")
+    if not subtitle.is_file():
+        raise PackagingError("Brak polskiego OU.bin")
+    if compiled.stat().st_mtime + 2 < source.stat().st_mtime:
+        raise PackagingError(
+            "Gothic.dat jest starszy niz skrypty ParryHotter. "
+            "Uruchom GothicStarter_mod z Reparse Scripts."
+        )
+
+    # Compiled Gothic DAT stores strings and instance names. Check for known
+    # unique markers so we never package a stock Gothic.dat by accident.
+    raw = compiled.read_bytes()
+    if b"Flipendo" not in raw or b"PH_Rune_Flipendo" not in raw:
+        raise PackagingError(
+            "Gothic.dat nie zawiera zaklec Parry Hotter. "
+            "Ponownie skompiluj skrypty przez GothicStarter_mod."
+        )
+    return compiled, subtitle
+
+
+def build_mod(game: Path, vdfs_executable: Path | None = None) -> Path:
+    game = game.expanduser().resolve()
+    if not (game / "System").is_dir():
+        raise PackagingError(f"Nie znaleziono Gothic/System: {game}")
+    compiler = (vdfs_executable or locate_vdfs(game)).expanduser().resolve()
+    if not compiler.is_file():
+        raise PackagingError(f"Nie ma GothicVDFS.exe: {compiler}")
+    dat, subtitles = validate_compiled(game)
+
+    with tempfile.TemporaryDirectory(prefix="ph_vdfs_") as temp:
+        stage = Path(temp)
+        dat_rel = Path("_work/Data/Scripts/_compiled/Gothic.dat")
+        ou_rel = Path("_work/Data/Scripts/Content/Cutscene/Ou.bin")
+        for src, rel in ((dat, dat_rel), (subtitles, ou_rel)):
+            dst = stage / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+        vdf_script = stage / "build.vm"
+        vdf_script.write_text(
+            "[BEGINVDF]\n"
+            "Comment=ParryHotter personal test mod\n"
+            "BaseDir=.\n"
+            "VDFName=ParryHotter.mod\n"
+            "[FILES]\n"
+            "_work/Data/Scripts/_compiled/Gothic.dat\n"
+            "_work/Data/Scripts/Content/Cutscene/Ou.bin\n"
+            "[EXCLUDE]\n"
+            "[INCLUDE]\n"
+            "[ENDVDF]\n",
+            encoding="ascii",
+        )
+        proc = subprocess.run(
+            [str(compiler), "/B", str(vdf_script)],
+            cwd=stage,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        result = stage / "ParryHotter.mod"
+        if proc.returncode or not result.is_file() or result.stat().st_size < 512:
+            raise PackagingError(
+                "GothicVDFS nie utworzyl poprawnego .mod.\n"
+                + (proc.stderr or proc.stdout)[-1400:]
+            )
+        destination = game / "Data" / "ModVDF"
+        destination.mkdir(parents=True, exist_ok=True)
+        outfile = destination / "ParryHotter.mod"
+        shutil.copy2(result, outfile)
+
+    # Create a separate *release* profile. Keep the development one unchanged
+    # for new experiments and source reparsing.
+    ini = game / "System" / "ParryHotter-PLAY.ini"
+    dev = game / "System" / "ParryHotter.ini"
+    if not dev.is_file():
+        raise PackagingError("Brak System/ParryHotter.ini")
+    text = dev.read_text(encoding="latin-1")
+    if re.search(r"(?im)^vdf=.*$", text):
+        text = re.sub(r"(?im)^vdf=.*$", "vdf=ParryHotter.mod", text)
+    else:
+        raise PackagingError("ParryHotter.ini does not define VDF=")
+    text = re.sub(r"(?im)^force_parameters=.*$", "force_parameters=", text)
+    text = re.sub(r"(?im)^title=.*$", "title=Parry Hotter (PLAY)", text)
+    ini.write_text(text, encoding="latin-1")
+    return outfile
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Build a separate ParryHotter.mod")
+    parser.add_argument("--game", type=Path, default=DEFAULT_GAME)
+    parser.add_argument("--vdfs", type=Path, help="Optional exact GothicVDFS.exe path")
+    args = parser.parse_args()
+    try:
+        result = build_mod(args.game, args.vdfs)
+    except (PackagingError, OSError, subprocess.TimeoutExpired) as error:
+        parser.exit(1, f"BLAD: {error}\n")
+    print(f"Zbudowano mod: {result}")
+    print("Odtad uruchamiaj 'Parry Hotter (PLAY)' w GothicStarter.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
