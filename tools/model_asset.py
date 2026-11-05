@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -107,13 +108,54 @@ def prepare_model(game_dir: Path, model_archive: Path | None = None) -> Path:
     return private_dir
 
 
+
+def prepare_blender_project(private_dir: Path) -> Path | None:
+    """Build a .blend project if a Blender executable is available locally.
+
+    The output is intentionally NOT marked as a Gothic-ready ASC.
+    """
+    blender_path = shutil.which("blender")
+    if blender_path is None:
+        # Official Blender installations on Windows are usually versioned.
+        root = Path(r"C:\Program Files\Blender Foundation")
+        if root.is_dir():
+            candidates = sorted(root.glob("Blender */blender.exe"), reverse=True)
+            blender_path = str(candidates[0]) if candidates else None
+    if blender_path is None:
+        print("Blender nie jest zainstalowany. FBX zachowany do konwersji.")
+        return None
+
+    output = private_dir / "Harry_HP2_to_Gothic_PREP.blend"
+    command = [
+        blender_path,
+        "--background",
+        "--python",
+        str(ROOT / "tools" / "blender_prepare.py"),
+        "--",
+        str(private_dir),
+        str(output),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=240)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"Blender nie przygotowal sceny: {exc}")
+        return None
+    if result.returncode != 0 or not output.exists():
+        print("Nie udalo sie zaimportowac modelu do Blendera:")
+        print((result.stderr or result.stdout)[-1200:])
+        return None
+    print(f"Scena Blendera gotowa do retargetingu: {output}")
+    return output
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import private Harry HP2 model archive")
     parser.add_argument("--game", type=Path, default=DEFAULT_GAME)
     parser.add_argument("--zip", type=Path, help="ZIP downloaded manually from The Models Resource")
     args = parser.parse_args()
     try:
-        prepare_model(args.game, args.zip)
+        private_dir = prepare_model(args.game, args.zip)
+        prepare_blender_project(private_dir)
     except (ModelAssetError, OSError, zipfile.BadZipFile) as exc:
         print("Nie przygotowano modelu: " + str(exc), file=sys.stderr)
         print("Strona modelu: " + MODEL_PAGE, file=sys.stderr)
