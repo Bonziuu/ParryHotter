@@ -18,7 +18,8 @@
 ## Niedokończone: konieczne do grywalnej wersji
 
 - [ ] Import prawdziwego `skharrymesh.fbx`, szkieletu `HUM_BODY_NAKED0.ASC`, retarget w Blenderze, **eksport PH_HARRY.ASC** i test peleryny. Repo nie zawiera jeszcze gotowego modelu Gothica.
-- [ ] Różdżka trzymana przez Harry'ego i własne animacje celowania/ładowania.
+- [x] Model 3DS/TGA różdżki z oryginalnego lokalnego OBJ HP2 lub fallback generowany automatycznie, dołączony do lokalnego `.mod` (testy i kompilacja DLL).
+- [ ] **Sprawdzić w grze** mocowanie różdżki do `ZS_RIGHTHAND` podczas PPM, pozycję i animacje; własne animacje ładowania niegotowe.
 - [ ] Weryfikacja w rzeczywistym Gothic I i jego parserze oraz pakowanie przez GothicVDFS.exe użytkownika.
 - [ ] Rzeczywiste efekty 6 zaklęć: lewitacja głową w dół, fizyka wybuchu, taniec, rozbrojenie, niestandardowa animacja śmierci.
 - [ ] Dźwięki, błyski, koszt many, cooldowny, usunięcie konfliktów 1–6 z bazowym interfejsem gry.
