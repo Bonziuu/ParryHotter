@@ -393,6 +393,8 @@ namespace {
     }
 
     void RemoveHud() {
+        HideDiagnostics();
+        gDiagnosticVisible = false;
         if (screen) {
             for (auto* view : gTargetIcons) {
                 if (view) screen->RemoveItem(view);
@@ -575,11 +577,23 @@ namespace {
             !player->openinventory &&
             (!zCAICamera::current || !zCAICamera::current->inCutsceneMode);
         if (!gameplay) {
+            // Opening inventory, changing levels or entering a cutscene
+            // cancels unfinished air tracking. Never animate a paused NPC.
+            if (gFlightRecovery.Active())
+                NoteImpact(ParryHotter::ImpactEvent::Interrupted);
+            if (gFlightRecovery.Active() || gCastTarget ||
+                gImpactTag.Active(ParryHotter::SpellImpactTag::Clock::now()))
+                ResetSelectedSpellForScript();
+            HideDiagnostics();
             gCamera.Restore(zCAICamera::current);
             if (gAiming) LowerWand();
             gController.Step({});
             ShowTarget(false, gActiveSlot);
             return;
+        }
+        if (zinput->KeyToggled(KEY_F10)) {
+            gDiagnosticVisible = !gDiagnosticVisible;
+            gDiagnosticDirty = true;
         }
         int hotkey = 0;
         for (int i = 0; i < 6; ++i) {
@@ -602,6 +616,7 @@ namespace {
         ShowSlotAvailability(mana, now);
         ShowSelection(out.selected);
         ShowTarget(out.targetSymbolVisible, out.selected);
+        DrawDiagnostics();
         // Keep the Gothic camera's own mouse rotation and collision.
         // Our helper only moves the distance/shoulder for spell targeting,
         // and restores previous values after PPM is released.
@@ -641,6 +656,8 @@ namespace {
 // Standard Union DLL exports, called by engine event hooks in template.
 cexport void Game_Entry() {}
 cexport void Game_Init() {
+    gTelemetry.Reset();
+    gDiagnosticDirty = true;
     SetUnionPresence(true);
     gController.Reset();
     gCooldown.Reset();
