@@ -36,11 +36,19 @@ Bohater ma imię Parry Hotter, 200 many, 6 krąg magii i overlay `Humans_Mage.md
 
 **Nie przetestowano jeszcze w prawdziwym silniku** mechanik w stanie końcowym. Testy GitHub Actions sprawdzają kod instalacyjny i zgodność struktury polskich plików, nie grę.
 
-## Co z oryginalnym modelem Harry'ego z gry PC 2002?
+## Model Harry'ego z Komnaty Tajemnic (PC, 2002) — **prywatny prototyp**
 
-Model rzeczywiście jest prezentowany w serwisie [The Models Resource — HP2 PC](https://models.spriters-resource.com/pc_computer/harrypotterthechamberofsecrets/), ale publikacja wyciągniętego modelu na stronie nie oznacza, że otrzymaliśmy zgodę właścicieli praw na umieszczenie go w publicznym modzie. **Nie dołączamy go** i nie udajemy, że potrafi sam się zainstalować: szkielet i animacje UE1 trzeba dopasować do ZenGin.
+Użytkownik przygotowuje Parry Hotter **wyłącznie do osobistych, niekomercyjnych testów i nauki**, bez publikowania moda z modelem. Możemy więc zaplanować **lokalne użycie** oryginalnego modelu z HP2. [Regulamin The Models Resource](https://models.spriters-resource.com/page/tou/) dopuszcza wykorzystywanie zasobów w niepublikowanych, niekomercyjnych projektach w granicach obowiązującego prawa; nie oznacza to automatycznego przeniesienia praw autorskich.
 
-Na potrzeby wersji publicznej można wykonać autorski model Parry'ego albo użyć legalnie dostępnej postaci **CC0** (np. [Low Poly RPG Characters](https://opengameart.org/content/lowpoly-rpg-characters)) i skonwertować ją do szkieletu Gothica. Własny eksport z posiadanej gry Harry Potter może być używany lokalnie w zależności od warunków/licencji.
+**Dokładny model:** [Harry Potter — PC Chamber of Secrets (The Models Resource)](https://models.spriters-resource.com/pc_computer/harrypotterthechamberofsecrets/asset/295618/), przesłany przez IndigoPupper. Archiwum zawiera `skharrymesh/skharrymesh.fbx`, wersję `.obj`, materiały i tekstury `skharryTex0.png`–`skharryTex3.png`. **FBX** jest lepszym materiałem wyjściowym do szkieletu/animacji niż OBJ.
+
+**Plan lokalnego importu** (nadal do wykonania):
+1. Pobierz archiwum na swój komputer i pozostaw je poza publicznym repozytorium, np. w prywatnym `ParryHotter-local/models/`.
+2. Zaimportuj `skharrymesh.fbx` do Blendera i porównaj jego szkielet z `HUM_BODY_NAKED0.ASC` z Gothic 1.
+3. Dopasuj proporcje i wiązanie kości do szkieletu Gothic 1, następnie wyeksportuj model przez KrxImpExp do formatu `.ASC`. Animacje rąk oraz rzucania czarów będą wymagały dodatkowych testów.
+4. Skonfiguruj model w MDS/skryptach Gothica, sprawdź tekstury i przetestuj w GothicStarter.
+
+**Stan obecny:** znaleziono źródło i formaty modelu; model **nie jest jeszcze pobrany, skonwertowany ani działający w Gothic 1**. Instalator v0.2 nie obiecuje podmiany postaci. Nie publikujemy cudzych plików na GitHubie; lokalny workflow może używać osobno pobranej kopii.
 
 ## Stan prac
 
