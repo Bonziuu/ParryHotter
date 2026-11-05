@@ -48,6 +48,7 @@ def main() -> int:
         content = temp / "Content"
         content.mkdir()
         compiler = temp / "gdc-windows-x64.exe"
+        runtime = temp / "gothic-runtime.d"
         output = temp / "Gothic.dat"
 
         download_polish_scripts(archive)
@@ -62,11 +63,22 @@ def main() -> int:
         misc.write_bytes(raw)
         install(content)
         get_compiler(compiler)
+        # The independent compiler is not the game itself: explicitly load the
+        # ZenGin externals it needs to understand Npc_*, AI_*, PrintScreen, etc.
+        runtime_url = (
+            "https://raw.githubusercontent.com/dzieje-khorinis/DaedalusCompiler/"
+            "7fc987118e432569e078cd738fbc7ff5a2194742/"
+            "src/DaedalusCompiler/DaedalusBuiltins/gothic.d"
+        )
+        with urllib.request.urlopen(runtime_url, timeout=40) as source:
+            runtime.write_bytes(source.read(300_000))
+
 
         process = subprocess.run(
             [
                 str(compiler), str(content / "Gothic.src"),
                 "--output-dat", str(output),
+                "--runtime", str(runtime),
             ],
             cwd=temp, capture_output=True, text=False, timeout=240,
         )
