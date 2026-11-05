@@ -64,7 +64,9 @@ def validate_compiled(game: Path) -> tuple[Path, Path]:
     # Compiled Gothic DAT stores strings and instance names. Check for known
     # unique markers so we never package a stock Gothic.dat by accident.
     raw = compiled.read_bytes()
-    if b"Flipendo" not in raw or b"PH_Rune_Flipendo" not in raw:
+    # ZenGin and independent Daedalus compilers normalize symbol case.
+    # Search case-insensitively to avoid rejecting correctly compiled DATs.
+    if b"flipendo" not in raw.lower() or b"ph_rune_flipendo" not in raw.lower():
         raise PackagingError(
             "Gothic.dat nie zawiera zaklec Parry Hotter. "
             "Ponownie skompiluj skrypty przez GothicStarter_mod."
