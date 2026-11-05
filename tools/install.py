@@ -139,6 +139,10 @@ def add_hit_hook(text: str, function: str, invocation: str) -> str:
 
 
 def patch_assess_magic(text: str) -> str:
+    text = add_hit_hook(
+        text, "B_AssessMagic_IceCube",
+        "if (Npc_IsPlayer(other) && C_NpcIsHuman(self)) { PH_OnLevicorpusHit(); return; };",
+    )
     text = add_hit_hook(text, "B_AssessMagic_ThunderBall", "PH_OnExpelliarmusHit();")
     text = add_hit_hook(text, "B_AssessMagic_Breathofdeath", "PH_OnAvadaHit();")
     text = add_hit_hook(
