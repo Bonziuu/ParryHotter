@@ -82,6 +82,50 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("title=Parry Hotter (DEV)", dev)
         self.assertIn("force_parameters=-zreparse", dev)
 
+    def test_packages_private_harry_costume_only_after_compilation(self):
+        items = self.game / "_work" / "Data" / "Scripts" / "Content" / "Items"
+        items.mkdir(parents=True)
+        armor = items / "ParryHarryArmor.d"
+        armor.write_text("INSTANCE PH_ARMOR_HARRY(C_Item) {}", encoding="ascii")
+        hero = self.game / "_work" / "Data" / "Scripts" / "Content" / "Story" / "NPC" / "PC_Hero.d"
+        hero.parent.mkdir(parents=True)
+        hero.write_text("PC hero visual override", encoding="ascii")
+        anims = self.game / "_work" / "Data" / "Anims"
+        anims.mkdir(parents=True)
+        (anims / "PH_HARRY.ASC").write_bytes(b"*GEOMOBJECT *MESH")
+        (anims / "HUMANS.MDS").write_bytes(b'registerMesh ("PH_HARRY.ASC")')
+        textures = self.game / "_work" / "Data" / "Textures"
+        textures.mkdir(parents=True)
+        for i in range(4):
+            (textures / f"PH_HARRY_TEX{i}.TGA").write_bytes(b"private test TGA")
+        self.dat.write_bytes(b"Flipendo PH_Rune_Flipendo PH_ARMOR_HARRY")
+        stamp = max(self.src.stat().st_mtime, armor.stat().st_mtime,
+                    hero.stat().st_mtime) + 5
+        os.utime(self.dat, (stamp, stamp))
+
+        def fake_builder(cmd, *, cwd, **kwargs):
+            stage = Path(cwd)
+            vm = (stage / "build.vm").read_text()
+            self.assertIn("_work/Data/Anims/PH_HARRY.ASC", vm)
+            self.assertIn("_work/Data/Anims/HUMANS.MDS", vm)
+            self.assertIn("_work/Data/Textures/PH_HARRY_TEX3.TGA", vm)
+            self.assertEqual((stage / "_work/Data/Anims/PH_HARRY.ASC").read_bytes(),
+                             b"*GEOMOBJECT *MESH")
+            self.assertEqual(len(list((stage / "_work/Data/Textures").glob("*.TGA"))), 18)
+            (stage / "ParryHotter.mod").write_bytes(b"mocked vdf content" * 80)
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        with mock.patch("tools.package_mod.subprocess.run", side_effect=fake_builder):
+            self.assertTrue(build_mod(self.game, self.vdfs, self.hud_dll).exists())
+
+    def test_missing_private_harry_costume_blocks_incomplete_mod(self):
+        items = self.game / "_work" / "Data" / "Scripts" / "Content" / "Items"
+        items.mkdir(parents=True)
+        (items / "ParryHarryArmor.d").write_text("visual_change=PH_HARRY.ASC")
+        # No compiled armor symbol, so do not make a broken .mod.
+        with self.assertRaises(PackagingError):
+            build_mod(self.game, self.vdfs, self.hud_dll)
+
     def test_missing_polish_output_blocks_build(self):
         self.subtitle.unlink()
         with self.assertRaises(PackagingError):
