@@ -1,12 +1,24 @@
 # Parry Hotter — Gothic 1 🪄
 
-**Wersja 0.11 DEV — HUD Union, kamera zza ramienia, różdżka, odrzut NPC, F10 i poprawione celowanie środkiem ekranu.**
+**Wersja 0.12 DEV — HUD Union, kamera zza ramienia, poprawione namierzanie i bezpieczniejsze sterowanie PPM → LPM.**
 
 To nadal **prototyp źródłowy**, a nie kompletnie sprawdzony mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic` ani fizyki ragdoll. Sterowanie PPM + LPM i HUD mają skompilowaną wtyczkę Union, ale nie zostały jeszcze potwierdzone w uruchomionym Gothic 1.
 
 ### Diagnostyka bez ręcznego szukania plików
 
 Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utworzy `ParryHotter_diagnostics.txt` obok pliku BAT i sprawdzi w trybie tylko do odczytu: profile DEV/PLAY, plik `.mod`, kompilację zaklęć, polskie OU.bin, wszystkie 14 ikon oraz ustawienia myszy. Możesz przesłać raport, jeśli gra zachowuje się nieprawidłowo. Raport **nie sprawdza rozgrywki**, fizyki ani ruchów Harry'ego.
+
+## Etap 4g: ścisła kolejność PPM → LPM (DEV 0.12)
+
+Poprawiłem ważny błąd prototypu: przy równoczesnym wciśnięciu obu przycisków myszy HUD mógł błędnie uznać to za rzut. Od teraz kolejność jest jednoznaczna:
+
+- **PPM** rozpoczyna przygotowanie różdżki.
+- **LPM należy puścić podczas celowania**, a następnie kliknąć na NPC — czar może zostać rzucony dopiero na nowym kliknięciu, kiedy PPM już był trzymany.
+- Przytrzymywanie LPM nie powtarza zaklęcia, a jednoczesne naciśnięcie PPM + LPM nie rzuca czaru.
+- Wyjście do ekwipunku, cutscenki, pauza lub zapis **przerywa przygotowanie**. Po powrocie należy puścić i ponownie nacisnąć PPM, zanim zostanie przygotowane nowe zaklęcie. Zapobiega to przypadkowym czarom po zamknięciu menu.
+- Zmiana zaklęcia klawiszami 1–6 w czasie celowania działa tylko wtedy, gdy aktywny jest dozwolony stan PPM. Wprowadziłem testy kombinacji wejść (w tym przycisków wciśniętych przy powrocie z menu).
+
+**Dla użytkownika:** nie zmienia to sześciu stale widocznych ikon ani celownika. Nadal nie mamy potwierdzenia zachowania myszy i animacji w prawdziwej instalacji Gothic 1, mimo pomyślnego przejścia testów C++ i kompilacji DLL.
 
 ## Etap 4f: precyzyjne celowanie w NPC (DEV 0.11)
 
