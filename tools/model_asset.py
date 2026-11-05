@@ -7,6 +7,7 @@ valid Gothic animated ASC. The original model needs rigging and ASC export.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -68,6 +69,41 @@ def download_asset(target: Path) -> None:
         )
 
 
+
+def discover_model_zip(private_dir: Path) -> Path | None:
+    """Reuse a downloaded ordinary HP2 Harry ZIP before making web requests.
+
+    Only inspect likely archive names in the user's Downloads/our folder.
+    Never search or copy the rest of their personal files.
+    """
+    roots = [private_dir, ROOT, Path.home() / "Downloads"]
+    if os.environ.get("USERPROFILE"):
+        roots.append(Path(os.environ["USERPROFILE"]) / "Downloads")
+    candidates = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for pattern in ("295618*.zip", "*Harry*Potter*.zip", "*harry*.zip"):
+            candidates.extend(root.glob(pattern))
+    seen = set()
+    for path in sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True):
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            if not zipfile.is_zipfile(path):
+                continue
+            with zipfile.ZipFile(path) as archive:
+                names = {p.filename.replace("\\", "/").split("/")[-1].lower()
+                         for p in archive.infolist()}
+            if EXPECTED <= names:
+                return path
+        except (OSError, zipfile.BadZipFile):
+            continue
+    return None
+
+
+
 def prepare_model(game_dir: Path, model_archive: Path | None = None) -> Path:
     """Save extracted sources outside repository and game resource folders."""
     game_dir = game_dir.expanduser().resolve()
@@ -75,9 +111,13 @@ def prepare_model(game_dir: Path, model_archive: Path | None = None) -> Path:
         raise ModelAssetError(f"Nie znaleziono Gothic/System: {game_dir}")
     private_dir = game_dir / "ParryHotter-private" / "HP2-Harry-original"
     private_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = model_archive or private_dir / "295618.zip"
-
-    if model_archive is None and not zip_path.exists():
+    cached_zip = private_dir / "295618.zip"
+    zip_path = model_archive or (
+        cached_zip if cached_zip.is_file() else discover_model_zip(private_dir)
+    )
+    if zip_path is None:
+        # Try downloading automatically if no suitable local archive exists.
+        zip_path = cached_zip
         download_asset(zip_path)
     if not zipfile.is_zipfile(zip_path):
         raise ModelAssetError(f"Nieprawidlowy ZIP: {zip_path}")
