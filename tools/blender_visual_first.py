@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 REMOVE_NAMES = ("broom", "quidditch", "miotla", "miota")
-CAPE_NAMES = ("cape", "cloak", "peleryn", "plaszcz", "robe")
+CAPE_NAMES = ("cape", "cloak", "peleryn", "plaszcz")
 TARGET_HEIGHT = 1.0  # relative to the Gothic reference body height
 
 
@@ -60,10 +60,6 @@ def copy_rig_from_blend(bpy, path: Path):
     ]
     if not gothic_meshes:
         raise RuntimeError("Gothic reference must contain a skin-weighted body mesh")
-    for obj in appended:
-        if obj and obj.name not in bpy.context.scene.objects:
-            # Blender checks membership by object not string; handle outside below.
-            pass
     for obj in appended:
         if obj and obj.name not in bpy.context.scene.collection.all_objects:
             try:
@@ -166,6 +162,7 @@ def anchor_cape(mesh, rig):
 def skin_to_gothic(mesh, rig):
     import bpy
     mesh.parent = rig
+    mesh.matrix_parent_inverse = rig.matrix_world.inverted()
     modifier = mesh.modifiers.new("GOTHIC_HUMAN_SKIN", "ARMATURE")
     modifier.object = rig
     modifier.use_deform_preserve_volume = True
@@ -199,7 +196,9 @@ def main():
     # Bake all original HP2 object transformations into Harry's mesh
     # BEFORE parenting to Gothic skeleton, without touching Gothic body.
     for obj in harry_objs:
+        original_world = obj.matrix_world.copy()
         obj.parent = None
+        obj.matrix_world = original_world
         for modifier in list(obj.modifiers):
             if modifier.type == "ARMATURE":
                 obj.modifiers.remove(modifier)
