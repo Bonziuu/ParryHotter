@@ -4,11 +4,25 @@ on:
   pull_request:
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Test local patcher
+      - name: Test local patcher and installer
         run: python -m unittest discover -s tests -v
+
+  unified-pl-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download and verify real Unified-PL with Parry Hotter
+        run: python -m tools.verify_download
