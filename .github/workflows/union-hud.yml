@@ -29,6 +29,8 @@ jobs:
           /tmp/parry_impulse_test
           g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_flight_recovery.cpp -o /tmp/parry_flight_test
           /tmp/parry_flight_test
+          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_impact_telemetry.cpp -o /tmp/parry_telemetry_test
+          /tmp/parry_telemetry_test
       - name: Generate and validate original 32-bit Gothic TGA icons
         run: |
           python tools/generate_hud_textures.py --out /tmp/ph_icons
@@ -61,6 +63,7 @@ jobs:
           Copy-Item 'union/hud/SpellImpactTag.hpp' 'sdk/UnionProject/Plugin/SpellImpactTag.hpp' -Force
           Copy-Item 'union/hud/ImpactImpulse.hpp' 'sdk/UnionProject/Plugin/ImpactImpulse.hpp' -Force
           Copy-Item 'union/hud/FlightRecovery.hpp' 'sdk/UnionProject/Plugin/FlightRecovery.hpp' -Force
+          Copy-Item 'union/hud/ImpactTelemetry.hpp' 'sdk/UnionProject/Plugin/ImpactTelemetry.hpp' -Force
           Copy-Item 'union/userapi/oCNpc.inl' 'sdk/UnionProject/GothicAPI/Gothic_UserAPI/oCNpc.inl' -Force
           Copy-Item 'union/userapi/zCInput_Win32.inl' 'sdk/UnionProject/GothicAPI/Gothic_UserAPI/zCInput_Win32.inl' -Force
       - name: Build native G1 Release / Win32 DLL
