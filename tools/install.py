@@ -122,8 +122,14 @@ def patch_hero(text: str) -> str:
     return patch_hero_temporary_robe(patched)
 
 
-def add_hit_hook(text: str, function: str, invocation: str) -> str:
-    # Insert inside the EXISTING function, not by declaring a duplicate symbol.
+def add_hit_hook(
+    text: str, function: str, invocation: str, old_invocation: str | None = None
+) -> str:
+    """Patch only one hit handler and upgrade legacy unconditional callbacks.
+
+    Re-running a newer installer must REPLACE the old callback instead of
+    stacking new and old hooks (which would hit an NPC twice).
+    """
     anchor = re.compile(
         r"(?im)^\s*func\s+void\s+" + re.escape(function)
         + r"\s*\(\s*\)\s*\{"
@@ -135,20 +141,50 @@ def add_hit_hook(text: str, function: str, invocation: str) -> str:
     after = text[match.end():]
     if re.match(r"\s*" + re.escape(invocation), after):
         return text
-    return text[:match.end()] + newline + f"    {invocation}" + text[match.end():]
+    if old_invocation:
+        previous = re.match(
+            r"(?P<space>\s*)" + re.escape(old_invocation), after
+        )
+        if previous:
+            return (
+                text[:match.end()] + previous.group("space") + invocation
+                + after[previous.end():]
+            )
+        # Legacy code further down in the handler would cause a double hit.
+        handler_end = re.search(r"(?im)^\s*func\s+void\s+", after)
+        body = after[:handler_end.start()] if handler_end else after
+        if old_invocation in body:
+            raise PatchError(
+                f"{function} contains an unexpected older callback; "
+                "refusing to duplicate it"
+            )
+    return text[:match.end()] + newline + f"    {invocation}" + after
 
 
 def patch_assess_magic(text: str) -> str:
     text = add_hit_hook(
         text, "B_AssessMagic_IceCube",
+        "if (PH_IsSelectedSpell(2) && C_NpcIsHuman(self)) { PH_OnLevicorpusHit(); return; };",
         "if (Npc_IsPlayer(other) && C_NpcIsHuman(self)) { PH_OnLevicorpusHit(); return; };",
     )
-    text = add_hit_hook(text, "B_AssessMagic_ThunderBall", "PH_OnExpelliarmusHit();")
-    text = add_hit_hook(text, "B_AssessMagic_Breathofdeath", "PH_OnAvadaHit();")
     text = add_hit_hook(
-        text,
-        "B_AssessMagic_Berzerk",
+        text, "B_AssessMagic_ThunderBall",
+        "if (PH_IsSelectedSpell(4)) { PH_OnExpelliarmusHit(); };",
+        "PH_OnExpelliarmusHit();",
+    )
+    text = add_hit_hook(
+        text, "B_AssessMagic_Breathofdeath",
+        "if (PH_IsSelectedSpell(6)) { PH_OnAvadaHit(); };",
+        "PH_OnAvadaHit();",
+    )
+    text = add_hit_hook(
+        text, "B_AssessMagic_Berzerk",
+        "if (PH_IsSelectedSpell(3) && C_NpcIsHuman(self)) { PH_OnRictusempraHit(); return; };",
         "if (Npc_IsPlayer(other) && C_NpcIsHuman(self)) { PH_OnRictusempraHit(); return; };",
+    )
+    text = add_hit_hook(
+        text, "B_AssessMagic_Stormfist",
+        "if (PH_IsSelectedSpell(5)) { PH_OnBumbardoHit(); };",
     )
     return text
 
