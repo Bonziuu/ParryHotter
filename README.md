@@ -1,12 +1,23 @@
 # Parry Hotter — Gothic 1 🪄
 
-**Wersja 0.10 DEV — HUD Union, kamera zza ramienia, różdżka, odrzut i lądowanie NPC oraz diagnostyka fizyki w grze pod F10.**
+**Wersja 0.11 DEV — HUD Union, kamera zza ramienia, różdżka, odrzut NPC, F10 i poprawione celowanie środkiem ekranu.**
 
 To nadal **prototyp źródłowy**, a nie kompletnie sprawdzony mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic` ani fizyki ragdoll. Sterowanie PPM + LPM i HUD mają skompilowaną wtyczkę Union, ale nie zostały jeszcze potwierdzone w uruchomionym Gothic 1.
 
 ### Diagnostyka bez ręcznego szukania plików
 
 Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utworzy `ParryHotter_diagnostics.txt` obok pliku BAT i sprawdzi w trybie tylko do odczytu: profile DEV/PLAY, plik `.mod`, kompilację zaklęć, polskie OU.bin, wszystkie 14 ikon oraz ustawienia myszy. Możesz przesłać raport, jeśli gra zachowuje się nieprawidłowo. Raport **nie sprawdza rozgrywki**, fizyki ani ruchów Harry'ego.
+
+## Etap 4f: precyzyjne celowanie w NPC (DEV 0.11)
+
+Wcześniejsza wtyczka wymagała jednocześnie promienia ze środka kamery **i** identycznego wyniku ze standardowego systemu focus Gothica. Gdy engine namierzał sąsiedniego NPC, symbol czaru znikał lub rzut był blokowany mimo poprawnego celownika.
+
+- Nowy kod pobiera **najbliższy obiekt bezpośrednio z promienia środka kamery**. Jeśli pierwszym trafieniem jest żywy NPC w tym samym świecie, w zasięgu 19 metrów, może zostać celem; ściany, przedmioty i martwe postacie blokują namierzanie.
+- W chwili rzucania PPM + LPM plugin wywołuje `SetFocusVob` z NPC z celownika, aby natywny `Spell_Cast` korzystał z właściwego celu, a także zapamiętuje tę postać dla efektów fizycznych Levicorpus i Bumbardo.
+- **F10** pokazuje teraz także status celowania: NPC w celowniku, przeszkoda/brak NPC, poza zasięgiem, martwy NPC, brak kamery lub brak księgi magii. Ułatwia to ustalenie przyczyny, dla której LPM nie rzuca czaru.
+- Dodano niezależny test stanów celowania, a natywna biblioteka nadal podlega kompilacji w CI.
+
+**Granice:** nowa metoda korzysta z osi kamery i kolizji bryły VOB, nie z pikselowego trafiania samej tekstury. Nie kopiowaliśmy oryginalnej kamery HP2. Wpływ `SetFocusVob` na faktyczne trafienia pocisków i zachowanie rozmów z NPC trzeba sprawdzić w uruchomionym Gothicu 1.
 
 ## Etap 4e: diagnostyka fizyki w grze (DEV 0.10)
 
