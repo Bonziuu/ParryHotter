@@ -8,6 +8,17 @@ To nadal **prototyp źródłowy**, a nie kompletny mod `.mod`. Nie ma jeszcze mo
 
 Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utworzy `ParryHotter_diagnostics.txt` obok pliku BAT i sprawdzi w trybie tylko do odczytu: profile DEV/PLAY, plik `.mod`, kompilację zaklęć, polskie OU.bin, wszystkie 14 ikon oraz ustawienia myszy. Możesz przesłać raport, jeśli gra zachowuje się nieprawidłowo. Raport **nie sprawdza rozgrywki**, fizyki ani ruchów Harry'ego.
 
+## Etap 3/5: różdżka w ręce (nowe — Gothic 1 Union, eksperymentalne)
+
+Dodałem osobny model różdżki:
+- **Źródło oryginału HP2 PC:** [Wand — The Models Resource](https://models.spriters-resource.com/pc_computer/harrypotterthechamberofsecrets/asset/291995/). To inny model niż Harry na miotle. Plik zawiera `skWandmesh.obj` i `skWandTex0.png`. Instalator próbuje pobrać ZIP i szuka go w `Downloads`, ale oryginalne pliki pozostają wyłącznie lokalne.
+- **Gdy oryginał jest niedostępny:** `tools/wand_mesh.py` generuje własną, niskopoligonową drewnianą różdżkę. Wystarczy Python z biblioteką standardową — bez Blendera. Eksportuje `PH_WAND.3DS` (siatka Gothic) oraz `PH_WAND.TGA` (tekstura), a jeśli uda się pobrać oryginał, zachowuje kształt i teksturę z HP2.
+- `tools/setup.py` generuje różdżkę automatycznie, `tools/package_mod.py` dołącza ją do lokalnego `ParryHotter.mod`, a `SPRAWDZ_PARRY_HOTTER.bat` wykrywa oba pliki.
+- Wtyczka `union/Plugin/plugin.cpp` **próbuje** przy przytrzymaniu PPM podpiąć model do wolnego gniazda `ZS_RIGHTHAND` człowieka. Po zwolnieniu PPM odpina go, nie nadpisując prawdziwej broni NPC.
+- Funkcjonalność **została skompilowana dla Gothic 1**, ale pozycja różdżki i poprawność jej pokazywania podczas animacji **nie zostały jeszcze sprawdzone w uruchomionej grze**.
+
+**Ważne:** ten etap nie oznacza, że ręka i peleryna Harry'ego są już animowane jak w HP2. Różdżka korzysta z istniejących animacji rzucania czarów Gothica.
+
 ## Etap 2/5: wygląd Harry'ego, szkolna szata i peleryna
 
 **Zaimplementowane w repozytorium:**
