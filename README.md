@@ -4,6 +4,10 @@
 
 To nadal **prototyp źródłowy**, a nie kompletny mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic`, fizyki ragdoll ani własnego sterowania klikaniem myszką. Nie gwarantujemy działania wszystkich efektów — instalacja i parsowanie Gothic 1 na komputerze gracza nadal wymagają testów.
 
+### Diagnostyka bez ręcznego szukania plików
+
+Po próbie uruchomienia kliknij dwukrotnie **`SPRAWDZ_PARRY_HOTTER.bat`**. Utworzy `ParryHotter_diagnostics.txt` obok pliku BAT i sprawdzi w trybie tylko do odczytu: profile DEV/PLAY, plik `.mod`, kompilację zaklęć, polskie OU.bin, wszystkie 14 ikon oraz ustawienia myszy. Możesz przesłać raport, jeśli gra zachowuje się nieprawidłowo. Raport **nie sprawdza rozgrywki**, fizyki ani ruchów Harry'ego.
+
 ## Etap 1/5: kamera i celowanie (wersja developerska)
 
 **Wprowadzono:** płynne przybliżenie kamery do ramienia przy PPM, powrót do pierwotnych parametrów po zwolnieniu przycisku, filtrowanie martwych i oddalonych NPC, raycast ze środka kamery (zasłony/ściany), wyłączenie interakcji podczas ekwipunku i cutscenek oraz poprawkę konfiguracji, która nie wymusza już globalnego `Gothic2_Control=1`. Dodano testy C++ kamery i nowe testy przywracania ustawień myszy. **Działanie w silniku Gothic 1 nadal niepotwierdzone.**
