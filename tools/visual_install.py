@@ -20,9 +20,11 @@ ARMOR_SCRIPT = Path(__file__).resolve().parents[1] / "mod" / "Items" / "ParryHar
 
 def find_case(root: Path, *parts: str) -> Path:
     found = root
-    for name in parts:
+    for index, name in enumerate(parts):
         if not found.is_dir():
-            return found / name
+            # Preserve ALL remaining components when a directory hasn't yet
+            # been created. The old code silently skipped Meshes/Textures.
+            return found.joinpath(*parts[index:])
         found = next((p for p in found.iterdir() if p.name.casefold() == name.casefold()),
                      found / name)
     return found
