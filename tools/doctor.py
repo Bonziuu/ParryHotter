@@ -85,6 +85,10 @@ def report(game: Path) -> str:
     )
     if missing:
         output.append("Brakuje ikon: " + ", ".join(missing))
+    check("Rozdzka: model 3DS w Meshes",
+          case_path(game, "_work", "Data", "Meshes", "PH_WAND.3DS"))
+    check("Rozdzka: drewniana tekstura TGA",
+          case_path(game, "_work", "Data", "Textures", "PH_WAND.TGA"))
 
     # Original Harry is loaded only after an actual converted Gothic ASC is
     # registered. Never confuse the temporary Fire Mage robe with HP2 Harry.
