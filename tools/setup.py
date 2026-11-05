@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.install import PatchError, install
 from tools.model_asset import ModelAssetError, prepare_model, prepare_blender_project, prepare_visual_first, MODEL_PAGE
+from tools.configure_mouse import configure_mouse
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -189,6 +190,16 @@ def main() -> int:
         print(f"BLAD INSTALACJI: {exc}", file=sys.stderr)
         print("Sprawdz sciezke i polaczenie internetowe; nie uruchamiaj gry.", file=sys.stderr)
         return 1
+
+    print("Konfiguruje klik LPM do rzucania wybranego czaru...")
+    try:
+        files = configure_mouse(args.game)
+        if files:
+            print("Ustawienia myszy zapisane z kopia .parryhotter-original")
+        else:
+            print("Sterowanie: brak zgodnych kluczy INI lub opcje juz wlaczone.")
+    except OSError as exc:
+        print(f"Nie mozna zmienic ustawien myszy: {exc}")
 
     # Never publish or place raw copyrighted FBX/texture files inside game data.
     # The game needs an ASC model with a compatible human skeleton.
