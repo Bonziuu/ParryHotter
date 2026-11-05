@@ -28,3 +28,14 @@ jobs:
           python-version: '3.11'
       - name: Download and verify real Unified-PL with Parry Hotter
         run: python -m tools.verify_download
+
+  daedalus-compile:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile Gothic 1 Unified-PL plus Parry Hotter using pinned GDC
+        run: python -m tools.verify_daedalus
