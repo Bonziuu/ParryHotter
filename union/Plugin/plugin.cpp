@@ -463,36 +463,39 @@ namespace {
         gShownTargetSlot = targetIndex;
     }
 
-    // Camera-center raycast plus native NPC focus; reject walls/occlusion.
-    // No magic is cast just because an NPC happens to be in front of Harry.
-    bool HasValidNpcTarget() {
-        if (!player) return false;
-        oCNpc* focus = player->GetFocusNpc();
-        if (!focus || focus == player || focus->IsDead()) return false;
-        // Native focus already checks visibility. Do not show a spell marker
-        // on an extremely distant NPC just because focus is still cached.
-        const float distance = player->GetDistanceToVob(*focus);
-        if (distance < 0.0f || distance >= 1900.0f) return false;
-
-        // A center-screen ray from the camera must reach the focused NPC
-        // before hitting a wall or another VOB. This prevents highlighting
-        // Gothic's focus target when it is far outside the screen center.
+    // Camera-centered aiming is authoritative. The native Gothic focus may
+    // point to another nearby NPC and must not silently block the crosshair.
+    // The nearest ray hit must itself be a living NPC, not a wall or prop.
+    oCNpc* GetCenteredNpcTarget() {
+        if (!player) return nullptr;
         zCAICamera* cam = zCAICamera::current;
         zCVob* cameraVob = cam ? cam->camVob : nullptr;
         zCWorld* world = player->GetHomeWorld();
-        if (!cameraVob || !world) return false;
+        if (!cameraVob || !world) return nullptr;
+
         zVEC3 direction = cameraVob->GetAtVectorWorld();
-        if (direction.Length_Sqr() < 0.01f) return false;
+        if (direction.Length_Sqr() < 0.01f) return nullptr;
         direction.Normalize();
         direction *= zVEC3(1900.0f);
         const int flags = zTRACERAY_VOB_BBOX |
                           zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
-        const int hit = world->TraceRayNearestHit(
-            cameraVob->GetPositionWorld(), direction,
-            static_cast<zCVob*>(player), flags
-        );
-        return hit && world->traceRayReport.foundVob ==
-                          static_cast<zCVob*>(focus);
+        if (!world->TraceRayNearestHit(
+                cameraVob->GetPositionWorld(), direction,
+                static_cast<zCVob*>(player), flags))
+            return nullptr;
+        zCVob* hitVob = world->traceRayReport.foundVob;
+        oCNpc* npc = zDYNAMIC_CAST<oCNpc>(hitVob);
+        if (!npc || npc == player || npc->IsDead() ||
+            npc->GetHomeWorld() != world)
+            return nullptr;
+        const float distance = player->GetDistanceToVob(*npc);
+        if (distance < 0.0f || distance >= 1900.0f)
+            return nullptr;
+        return npc;
+    }
+
+    bool HasValidNpcTarget() {
+        return GetCenteredNpcTarget() != nullptr;
     }
 
     // Use the native spellbook so that mana, target rules and Gothic visual FX
@@ -541,31 +544,29 @@ namespace {
         if (symbol) symbol->SetValue(0, 0);
     }
 
-    void SyncSelectedSpellForScript(int slot) {
-        // This symbol comes from the locally compiled ParryHotter.d.
-        // The Daedalus hit handlers use it to distinguish our 6 runes from
-        // the vanilla spells that temporarily share the same spell IDs.
-        if (!parser || slot < 0 || slot >= 6) return;
+    void SyncSelectedSpellForScript(int slot, oCNpc* target) {
+        // Keep the last genuine center-ray target so a later projectile
+        // impact does not accidentally move a different focused NPC.
+        if (!parser || slot < 0 || slot >= 6 || !target) return;
         zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
-        if (symbol) {
-            ClearCastTarget();
-            if (player) {
-                oCNpc* target = player->GetFocusNpc();
-                if (target && target != player && !target->IsDead()) {
-                    target->AddRef();
-                    gCastTarget = target;
-                }
-            }
-            symbol->SetValue(slot + 1, 0);
-            gImpactTag.MarkCast(slot, ParryHotter::SpellImpactTag::Clock::now());
-        }
+        if (!symbol) return;
+        ClearCastTarget();
+        target->AddRef();
+        gCastTarget = target;
+        symbol->SetValue(slot + 1, 0);
+        gImpactTag.MarkCast(slot, ParryHotter::SpellImpactTag::Clock::now());
     }
 
-    bool CastAtFocusedNpc(int slot) {
-        if (!player || !HasValidNpcTarget()) return false;
+    bool CastAtCenteredNpc(int slot) {
+        if (!player) return false;
+        oCNpc* target = GetCenteredNpcTarget();
+        if (!target) return false;
         oCMag_Book* spellbook = player->GetSpellBook();
         if (!spellbook) return false;
-        SyncSelectedSpellForScript(slot);
+        // Bind the game engine's target to the actual center-screen NPC.
+        // Gothic's own focus detection may otherwise select a neighbor.
+        player->SetFocusVob(static_cast<zCVob*>(target));
+        SyncSelectedSpellForScript(slot, target);
         spellbook->Spell_Cast();
         return true;
     }
@@ -644,7 +645,7 @@ namespace {
         }
         if (out.cast && gAiming && gManaPrepared &&
             gCooldown.ReadyByTime(out.selected, now)) {
-            if (CastAtFocusedNpc(out.selected)) {
+            if (CastAtCenteredNpc(out.selected)) {
                 gCooldown.MarkPreparedCast(out.selected, now);
                 gManaPrepared = false;
                 ShowSlotAvailability(player->GetAttribute(NPC_ATR_MANA), now);
