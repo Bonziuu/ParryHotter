@@ -21,6 +21,16 @@ Celownik to dyskretna kropka w centrum. Nad NPC wskazanym natywnym systemem skup
 
 Oryginalne Harry Potter 1/2 PC mają inne sterowanie (LPM do ładowania i zwolnienie do rzucania). Tutaj celowo używamy wersji wybranej przez użytkownika.
 
+## Etap 1 — kamera i sterowanie (v0.5 DEV)
+
+- Przy PPM kamera zbliża się do bohatera i przesuwa nad jego ramię. Zoom i offset przywracają poprzednie wartości po puszczeniu PPM, w czasie pauzy i przed opuszczeniem świata.
+- Wykrywanie celu odrzuca martwe i bardzo odległe NPC (około 19 metrów w jednostkach Gothica). Nadal jest to **natywny focus silnika** — nie dokładny raycast pojedynczego piksela.
+- W czasie ekwipunku, przejść między lokacjami i scenek przerywnikowych skrypt nie powinien przygotowywać ani rzucać czarów.
+- Poprawiono instalator: `Gothic2_Control=1` nie jest już wymuszane w globalnym `SystemPack.ini`. Jeśli stara wersja Parry Hotter wcześniej zmieniła ten klucz z 0 na 1, a istnieje kopia `.parryhotter-original`, poprzednia wartość jest bezpiecznie przywracana. `enableMouse=1` pozostaje wymagane.
+- Jednoczesne rozglądanie myszą i manipulacja różdżką korzystają z bazowej obsługi kamery Gothica. To nie jest jeszcze pełny swobodny obrót 1:1 z HP2. Finalna kamera powinna również obsługiwać obracanie postaci względem kamery.
+
+**Stan:** kod natywnej DLL i testy automatyczne mogą przechodzić, ale działanie w grze musi zostać potwierdzone. W razie problemu użyj zwykłego profilu Gothic lub profilu DEV bez DLL.
+
 ## Pliki
 
 - union/hud/SpellHudState.hpp — logika sześciu czarów, state machine gestów myszy i kontroli celu.
