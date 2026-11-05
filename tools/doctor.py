@@ -85,6 +85,31 @@ def report(game: Path) -> str:
     )
     if missing:
         output.append("Brakuje ikon: " + ", ".join(missing))
+
+    # Original Harry is loaded only after an actual converted Gothic ASC is
+    # registered. Never confuse the temporary Fire Mage robe with HP2 Harry.
+    armor_script = case_path(content, "Items", "ParryHarryArmor.d")
+    actual_mesh = case_path(game, "_work", "Data", "Anims", "PH_HARRY.ASC")
+    human_mds = case_path(game, "_work", "Data", "Anims", "HUMANS.MDS")
+    if not armor_script.is_file():
+        output.append("[OCZEKUJE] Harry HP2: tymczasowa szata maga Gothic I")
+    else:
+        check("Harry HP2: skrypt stroju", armor_script)
+        check("Harry HP2: przetworzony model ASC", actual_mesh)
+        check("Harry HP2: rejestracja w HUMANS.MDS", human_mds)
+        all_harry_textures = [
+            case_path(tex, f"PH_HARRY_TEX{i}.TGA") for i in range(4)
+        ]
+        present = sum(p.is_file() for p in all_harry_textures)
+        output.append(f"[{'OK' if present == 4 else 'BRAK'}] "
+                      f"Harry HP2: tekstury {present}/4")
+        if human_mds.is_file():
+            mds_data = human_mds.read_bytes().upper()
+            if b"PH_HARRY.ASC" not in mds_data:
+                output.append("[UWAGA] Brak registerMesh PH_HARRY.ASC w HUMANS.MDS")
+        if dat.is_file() and b"ph_armor_harry" not in dat.read_bytes().lower():
+            output.append("[UWAGA] Harry ASC w skryptach, ale brak symbolu "
+                          "PH_ARMOR_HARRY w Gothic.dat: Reparse Scripts")
     output.append("")
     output.append("Ustawienia sterowania:")
     output.append("Gothic.ini / enableMouse = " + option_value(case_path(sys, "Gothic.ini"), "enableMouse"))
