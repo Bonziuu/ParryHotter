@@ -26,6 +26,7 @@ from tools.configure_mouse import configure_mouse
 from tools.generate_hud_textures import generate as generate_hud_textures
 from tools.visual_install import install_visual
 from tools.stage_harry_export import stage_export
+from tools.wand_asset import prepare_wand, WandError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -199,6 +200,17 @@ def main() -> int:
     sprite_folder = args.game / "_work" / "Data" / "Textures"
     sprites = generate_hud_textures(sprite_folder)
     print(f"Wygenerowano {len(sprites)} oryginalnych ikon HUD: {sprite_folder}")
+
+    # A real Wand prop is much easier than a full animated human model.
+    # Prepare it automatically, using either the private HP2 OBJ or our
+    # original procedural wooden wand as a safe offline fallback.
+    try:
+        real_wand = prepare_wand(args.game)
+        print("Rozdzka HP2 (oryginalny OBJ)" if real_wand
+              else "Przygotowano autorska rozdzke zastepcza")
+    except (OSError, WandError, ValueError) as exc:
+        print(f"Nie udalo sie przygotowac rozdzki: {exc}")
+        print("Pozostale skrypty Parry Hotter beda nadal instalowane.")
 
     print("Konfiguruje mysz dla trybu PPM + LPM (Union)...")
     try:
