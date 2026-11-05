@@ -31,6 +31,14 @@ Oryginalne Harry Potter 1/2 PC mają inne sterowanie (LPM do ładowania i zwolni
 
 **Stan:** kod natywnej DLL i testy automatyczne mogą przechodzić, ale działanie w grze musi zostać potwierdzone. W razie problemu użyj zwykłego profilu Gothic lub profilu DEV bez DLL.
 
+## Różdżka (nowy etap)
+
+Podczas przytrzymania PPM wtyczka próbuje zamocować `PH_WAND.3DS` do istniejącego gniazda kości `ZS_RIGHTHAND`. Jeśli gniazdo ma już przedmiot, niczego nie nadpisuje; po zwolnieniu PPM odłącza własny model. Lokalna paczka `.mod` zawiera `_work/Data/Meshes/PH_WAND.3DS` i `_work/Data/Textures/PH_WAND.TGA`, przygotowane przez `tools/wand_asset.py`.
+
+Instalator może zachować geometrię z oddzielnego oryginalnego [modelu różdżki HP2 PC](https://models.spriters-resource.com/pc_computer/harrypotterthechamberofsecrets/asset/291995/) **wyłącznie na komputerze użytkownika**, albo automatycznie wygenerować autorską różdżkę 3DS/TGA offline.
+
+**Ważne:** mimo zielonej kompilacji DLL i testów plików 3DS nie zweryfikowano jeszcze położenia różdżki względem dłoni i animacji w ZenGin.
+
 ## Pliki
 
 - union/hud/SpellHudState.hpp — logika sześciu czarów, state machine gestów myszy i kontroli celu.
