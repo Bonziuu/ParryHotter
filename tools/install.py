@@ -41,8 +41,14 @@ def patch_source(text: str) -> str:
 
 
 def patch_hero(text: str) -> str:
+    # Existing v0.1 installations must be upgraded, too. The mage overlay
+    # supplies the human spellcasting animation set used by Gothic 1 mages.
+    mage_overlay = 'Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");'
     if HERO_MARK in text:
-        return text
+        if mage_overlay in text:
+            return text
+        newline = "\\r\\n" if "\\r\\n" in text else "\\n"
+        return text.replace(HERO_MARK, HERO_MARK + newline + "    " + mage_overlay, 1)
 
     found = re.search(r"(?is)\bINSTANCE\s+PC_Hero\s*\(\s*NPC_DEFAULT\s*\)\s*\{", text)
     if found is None:
@@ -73,6 +79,7 @@ def patch_hero(text: str) -> str:
     addon = [
         f"    {HERO_MARK}",
         "    Npc_SetTalentSkill(self, NPC_TALENT_MAGE, 6);",
+        '    Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");',
         "    CreateInvItem(self, PH_Rune_Flipendo);",
         "    CreateInvItem(self, PH_Rune_Levicorpus);",
         "    CreateInvItem(self, PH_Rune_Rictusempra);",
