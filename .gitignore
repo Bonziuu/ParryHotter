@@ -1,0 +1,17 @@
+# Original game content, proprietary assets and generated files
+*.vdf
+*.VDF
+*.mod
+*.MOD
+*.dat
+*.DAT
+*.vdf
+*.asc
+*.ASC
+*.psk
+*.psa
+*.tex
+*.TEX
+__pycache__/
+*.pyc
+.parryhotter/
