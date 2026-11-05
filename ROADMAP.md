@@ -1,32 +1,30 @@
-# Roadmap — Parry Hotter
+# Parry Hotter — stan prac (Gothic I, prototyp DEV 0.6)
 
-## v0.1 — skrypty prototypu (obecny etap)
+## Zrobione i przetestowane automatycznie
 
-- [x] Repozytorium i instrukcja uruchomienia.
-- [x] Sześć run z istniejącymi efektami Gothic 1.
-- [x] Patch lokalnego PC_Hero: Parry Hotter, 200 many, 6 krąg, wyposażenie startowe.
-- [x] Próba rozbrojenia celem Expelliarmus (AI_DropItem).
-- [x] Stan zabawnej śmierci po Avada Kedavra (animacja porażenia, po 2 s obrażenia śmiertelne).
-- [x] Testy instalatora.
-- [ ] **Weryfikacja kompilacji i działania w Gothic 1 na Windows**. Obecny kod to kandydat do pierwszych testów, nie wydany gotowy mod.
-- [ ] Spakowanie skompilowanych skryptów do pliku .mod z GothicVDFS i publikacja wydania.
+- [x] Sześć run (Flipendo, Levicorpus, Rictusempra, Expelliarmus, Bumbardo Maximus, Avada Kedavra) i podstawowe skrypty Daedalus.
+- [x] Polski zestaw skryptów i OU.bin, automatyczne kopie zapasowe.
+- [x] HUD Union: 6 slotów, symbole celu, środkowy celownik, maszyna stanów PPM + LPM.
+- [x] Kompilacja testowej DLL Union dla Gothic I, 14 autorskich ikon TGA, testy gestów i kamery.
+- [x] Prototyp kamery zza ramienia, sprawdzanie celu ze środka kamery, powrót do poprzednich ustawień.
+- [x] Poprawiona konfiguracja myszy bez wymuszania globalnego Gothic2_Control=1.
+- [x] Rictusempra i Avada Kedavra: zastępcze animacje Gothica i własne stany NPC.
+- [x] Pobieranie/przygotowanie zasobów Harry'ego prywatnie, automatyczne wykrywanie ZIP w Downloads.
+- [x] Przygotowanie tekstur HP2 PNG -> TGA przez Blendera (kod, wymaga testu na prawdziwych plikach).
+- [x] Tymczasowa szata Maga Ognia zamiast stroju więźnia, bez importu zewnętrznych modeli.
+- [x] Bezpieczna integracja **gotowego** lokalnego ASC jako strój Harry'ego: skrypty, MDS, tekstury, pakowanie tylko lokalnie.
+- [x] Testy Python instalatora, źródeł PL, model assets, pakowania oraz testy kompilatora GDC.
 
-## v0.2 — mysz, celowanie i animacje
+## Niedokończone: konieczne do grywalnej wersji
 
-- [ ] Projekt wtyczki **Union C++ dla Gothic 1**: kliknięcie LPM wywołuje czar, PPM celowanie, rolka zmienia aktywną runę.
-- [ ] Nakładka HUD z nazwą aktywnego zaklęcia i celownikiem.
-- [ ] Zaklęcia bez potrzeby wybierania runy w ekwipunku; koszt many i cooldown.
-- [ ] Sterowany odrzut i unoszenie NPC (logika w silniku, zabezpieczenia przed upadkiem przez mapę).
-- [ ] Efekty wizualne i dźwiękowe z własnych/licencjonowanych zasobów.
+- [ ] Import prawdziwego `skharrymesh.fbx`, szkieletu `HUM_BODY_NAKED0.ASC`, retarget w Blenderze, **eksport PH_HARRY.ASC** i test peleryny. Repo nie zawiera jeszcze gotowego modelu Gothica.
+- [ ] Różdżka trzymana przez Harry'ego i własne animacje celowania/ładowania.
+- [ ] Weryfikacja w rzeczywistym Gothic I i jego parserze oraz pakowanie przez GothicVDFS.exe użytkownika.
+- [ ] Rzeczywiste efekty 6 zaklęć: lewitacja głową w dół, fizyka wybuchu, taniec, rozbrojenie, niestandardowa animacja śmierci.
+- [ ] Dźwięki, błyski, koszt many, cooldowny, usunięcie konfliktów 1–6 z bazowym interfejsem gry.
+- [ ] Docelowe sterowanie swobodną kamerą z HP2 (obrót postaci i celowanie bez przeskoków).
+- [ ] Jeden instalator wykonujący **również** bezobsługową kompilację ASC i .mod po legalnym pozyskaniu lokalnych źródeł.
 
-## v0.3 — Parry Hotter i fizyka komediowa
+**Bezpieczeństwo:** nie publikujemy plików skopiowanych z komercyjnych gier. Gotowy użytkowy model powstaje wyłącznie lokalnie; skrypty i oryginalne ikony HUD są autorskie.
 
-- [ ] Zastąpienie modelu testowego własnym modelem Parry'ego i różdżką.
-- [ ] Eksperymentalne użycie modelu Harry'ego z Komnaty Tajemnic **tylko lokalnie**, z zasobów legalnie posiadanej gry.
-- [ ] Animacje: podrzucanie, zawieszanie głową w dół, wirowanie, salta, śmieszne zgony.
-- [ ] Wiele losowych sekwencji Avada Kedavra; specjalny rzadki efekt.
-- [ ] Testy kompatybilności zapisów i kolizji w trudnych miejscach (Stary Obóz, kopalnie, orkowie).
-
-## Ograniczenia i bezpieczeństwo
-
-Nie dołączamy oryginalnych modeli, tekstur, muzyki, animacji ani skryptów z żadnej komercyjnej gry. Główne zadanie v0.1 to weryfikacja Daedalusa i podstawowych efektów; Gothic 1 nie udostępnia natywnej fizyki ragdoll.
+**Najbliższy rzeczywisty blocker:** nie mamy dostępnego, wyeksportowanego Gothic-compatible `PH_HARRY.ASC` ani testu animacji w samej grze. Zielone testy GitHub Actions nie dowodzą działania w silniku ZenGin.
