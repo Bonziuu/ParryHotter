@@ -254,19 +254,18 @@ namespace {
         if (!player) return;
         const int mana = player->GetAttribute(NPC_ATR_MANA);
         const auto now = ParryHotter::SpellCooldown::Clock::now();
-        // Check mana BEFORE Gothic invests it. Do not re-check during casting.
-        if (!gCooldown.Ready(spellSlot, mana, now)) return;
         if (gAiming) {
             DetachWand();
             player->UnreadySpell();
-        }
-        const int id = kGothicSpellIds[spellSlot];
-        const int ok = player->ReadySpell(id, 0);
-        if (!ok) {
-            gManaPrepared = false;
             gAiming = false;
-            return;
+            gManaPrepared = false;
         }
+        // Check mana BEFORE Gothic invests it. Do not re-check during casting.
+        if (!gCooldown.Ready(spellSlot, mana, now)) return;
+        const int id = kGothicSpellIds[spellSlot];
+        // ReadySpell returns an undocumented integer in Gothic 1. Never
+        // assume 0 means failure; native Spell_Cast performs the final check.
+        player->ReadySpell(id, 0);
         gManaPrepared = true;
         gAiming = true;
         AttachWand();
