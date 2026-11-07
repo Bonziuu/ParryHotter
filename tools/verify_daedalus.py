@@ -15,40 +15,62 @@ from pathlib import Path
 from tools.setup import download_polish_scripts, unpack_polish_content
 from tools.install import install, PatchError
 from tools.visual_install import register_armor_source, select_visual_armor, ARMOR_SCRIPT
+from tools.spell_catalog import REQUIRED_COMPILED_SYMBOLS
 
 COMPILER_VERSION = "v0.9.5"
-COMPILER_URL = (
-    "https://github.com/dzieje-khorinis/DaedalusCompiler/releases/download/"
-    f"{COMPILER_VERSION}/gdc-windows-x64.exe"
-)
-COMPILER_SHA256 = "a85fd199099fb39e1eb07aeec8bed8a82e8cdc13c8b7df86bbfd36c8e3252345"
+COMPILER_ASSETS = {
+    # Digests published on the official v0.9.5 GitHub release asset list.
+    # https://github.com/dzieje-khorinis/DaedalusCompiler/releases/expanded_assets/v0.9.5
+    "Windows": ("gdc-windows-x64.exe", "a85fd199099fb39e1eb07aeec8bed8a82e8cdc13c8b7df86bbfd36c8e3252345"),
+    "Linux": ("gdc-linux-x64", "fd4749ac0fc0aefa76bb002e7216b5b3c2bb759521864d1db26176d492452b62"),
+}
+
+
+def compiler_asset() -> tuple[str, str]:
+    if platform.machine().lower() not in ("x86_64", "amd64"):
+        raise RuntimeError("The verified Daedalus compiler requires an x86-64 machine")
+    try:
+        return COMPILER_ASSETS[platform.system()]
+    except KeyError as exc:
+        raise RuntimeError("Verified Daedalus compilers are configured for Windows and Linux") from exc
 
 
 def get_compiler(path: Path) -> None:
+    asset, expected_sha256 = compiler_asset()
+    url = (
+        "https://github.com/dzieje-khorinis/DaedalusCompiler/releases/download/"
+        f"{COMPILER_VERSION}/{asset}"
+    )
     request = urllib.request.Request(
-        COMPILER_URL, headers={"User-Agent": "ParryHotter-daedalus-ci/1"}
+        url, headers={"User-Agent": "ParryHotter-daedalus-ci/1"}
     )
     total, digest = 0, hashlib.sha256()
-    with urllib.request.urlopen(request, timeout=90) as response, path.open("wb") as out:
-        while chunk := response.read(1024 * 1024):
-            total += len(chunk)
-            if total > 28 * 1024 * 1024:
-                raise RuntimeError("Compiler exceeds maximum allowed size")
-            digest.update(chunk)
-            out.write(chunk)
-    if digest.hexdigest() != COMPILER_SHA256:
-        raise RuntimeError("Compiler SHA256 does not match pinned GitHub release")
+    partial = path.with_suffix(path.suffix + ".download")
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response, partial.open("wb") as out:
+            while chunk := response.read(1024 * 1024):
+                total += len(chunk)
+                if total > 28 * 1024 * 1024:
+                    raise RuntimeError("Compiler exceeds maximum allowed size")
+                digest.update(chunk)
+                out.write(chunk)
+        if digest.hexdigest() != expected_sha256:
+            raise RuntimeError("Compiler SHA256 does not match pinned GitHub release")
+        if platform.system() != "Windows":
+            partial.chmod(0o700)
+        partial.replace(path)
+    finally:
+        partial.unlink(missing_ok=True)
 
 
 def main() -> int:
-    if platform.system() != "Windows":
-        raise RuntimeError("This test uses the Windows 64-bit Daedalus compiler")
+    asset, _ = compiler_asset()
     with tempfile.TemporaryDirectory(prefix="parry_compile_") as tempname:
         temp = Path(tempname)
         archive = temp / "Polish.zip"
         content = temp / "Content"
         content.mkdir()
-        compiler = temp / "gdc-windows-x64.exe"
+        compiler = temp / asset
         runtime = temp / "gothic-runtime.d"
         output = temp / "Gothic.dat"
 
@@ -107,6 +129,9 @@ def main() -> int:
         # GDC normalizes symbol identifiers to uppercase in its output.
         # User-facing spell names must remain embedded as readable strings.
         symbols_upper = compiled.upper()
+        for marker in REQUIRED_COMPILED_SYMBOLS:
+            if marker.upper() not in symbols_upper:
+                raise PatchError(f"Compiled Gothic.dat missing ten-slot marker {marker!r}")
         for marker in (
             b"FLIPENDO", b"PH_RUNE_FLIPENDO", b"AVADA KEDAVRA",
             b"PH_SELECTED_SPELL", b"PH_UNION_LOADED", b"PH_ONBUMBARDOHIT",
@@ -125,7 +150,7 @@ def main() -> int:
             source_file.read_bytes().decode("latin-1")
         ).encode("latin-1"))
         hero_file.write_bytes(select_visual_armor(
-            hero_file.read_bytes().decode("latin-1")
+            hero_file.read_bytes().decode("latin-1"), casting=True
         ).encode("latin-1"))
         (content / "Items" / "ParryHarryArmor.d").write_bytes(
             ARMOR_SCRIPT.read_bytes()
@@ -144,7 +169,9 @@ def main() -> int:
                              message.encode("ascii", "backslashreplace").decode("ascii"))
         if b"PH_ARMOR_HARRY" not in outfit_dat.read_bytes().upper():
             raise PatchError("Converted Harry armor symbol missing from compiled DAT")
-        print(f"OK: optional local Harry armor script compiled ({outfit_dat.stat().st_size} bytes)")
+        if b"PH_HARRY_CAST.MDS" not in outfit_dat.read_bytes().upper():
+            raise PatchError("Player casting overlay missing from compiled DAT")
+        print(f"OK: optional Harry armor and casting overlay compiled ({outfit_dat.stat().st_size} bytes)")
         print("Engine, animations, mouse and gameplay still require a real game test")
     return 0
 

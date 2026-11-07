@@ -4,6 +4,15 @@ on:
     paths:
       - 'union/**'
       - 'tools/generate_hud_textures.py'
+      - 'tools/spell_catalog.py'
+      - 'tools/check.py'
+      - '.github/workflows/union-hud.yml'
+  pull_request:
+    paths:
+      - 'union/**'
+      - 'tools/generate_hud_textures.py'
+      - 'tools/spell_catalog.py'
+      - 'tools/check.py'
       - '.github/workflows/union-hud.yml'
   workflow_dispatch:
 
@@ -15,38 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Compile C++ HUD state tests
-        run: |
-          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_hud.cpp -o /tmp/parry_hud_test
-          /tmp/parry_hud_test
-          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_camera.cpp -o /tmp/parry_camera_test
-          /tmp/parry_camera_test
-          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_cooldown.cpp -o /tmp/parry_cooldown_test
-          /tmp/parry_cooldown_test
-          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_impact_tag.cpp -o /tmp/parry_tag_test
-          /tmp/parry_tag_test
-          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_impact_impulse.cpp -o /tmp/parry_impulse_test
-          /tmp/parry_impulse_test
-          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_flight_recovery.cpp -o /tmp/parry_flight_test
-          /tmp/parry_flight_test
-          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_impact_telemetry.cpp -o /tmp/parry_telemetry_test
-          /tmp/parry_telemetry_test
-          g++ -std=c++17 -Wall -Wextra -Werror union/tests/test_aim_target.cpp -o /tmp/parry_target_test
-          /tmp/parry_target_test
-      - name: Generate and validate original 32-bit Gothic TGA icons
-        run: |
-          python tools/generate_hud_textures.py --out /tmp/ph_icons
-          python - <<'PY'
-          import pathlib
-          p=pathlib.Path('/tmp/ph_icons')
-          files=list(p.glob('*.TGA'))
-          assert len(files)==14, [x.name for x in files]
-          for path in files:
-              b=path.read_bytes()
-              assert b[2]==2 and b[16]==32 and b[17]==0x28
-              assert len(b)==18+64*64*4, path.name
-          print('Original icons OK:', len(files))
-          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Discover and run every portable C++ test and validate all HUD textures
+        run: python -m tools.check --cpp-only
 
   build-g1-union:
     runs-on: windows-latest
@@ -54,25 +36,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: microsoft/setup-msbuild@v2
-      - name: Clone known Gothic I Union SDK template
+      - name: Fetch pinned Gothic I Union SDK and stage all plugin headers
         shell: pwsh
         run: |
-          git clone --depth 1 https://github.com/Gratt-5r2/UnionProject.git sdk
+          $sdkCommit = '4ae1fc51bd962e72ed2a0b1d3da92084517db996'
+          git init sdk
+          if ($LASTEXITCODE -ne 0) { throw 'SDK init failed' }
+          git -C sdk remote add origin https://github.com/Gratt-5r2/UnionProject.git
+          git -C sdk fetch --depth 1 origin $sdkCommit
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned SDK fetch failed' }
+          git -C sdk checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned SDK checkout failed' }
+          if ((git -C sdk rev-parse HEAD) -ne $sdkCommit) { throw 'SDK commit mismatch' }
           Copy-Item 'union/Plugin/plugin.cpp' 'sdk/UnionProject/Plugin/plugin.cpp' -Force
-          Copy-Item 'union/hud/SpellHudState.hpp' 'sdk/UnionProject/Plugin/SpellHudState.hpp' -Force
-          Copy-Item 'union/hud/AimCamera.hpp' 'sdk/UnionProject/Plugin/AimCamera.hpp' -Force
-          Copy-Item 'union/hud/SpellCooldown.hpp' 'sdk/UnionProject/Plugin/SpellCooldown.hpp' -Force
-          Copy-Item 'union/hud/SpellImpactTag.hpp' 'sdk/UnionProject/Plugin/SpellImpactTag.hpp' -Force
-          Copy-Item 'union/hud/ImpactImpulse.hpp' 'sdk/UnionProject/Plugin/ImpactImpulse.hpp' -Force
-          Copy-Item 'union/hud/FlightRecovery.hpp' 'sdk/UnionProject/Plugin/FlightRecovery.hpp' -Force
-          Copy-Item 'union/hud/ImpactTelemetry.hpp' 'sdk/UnionProject/Plugin/ImpactTelemetry.hpp' -Force
-          Copy-Item 'union/hud/AimTargetState.hpp' 'sdk/UnionProject/Plugin/AimTargetState.hpp' -Force
-          Copy-Item 'union/userapi/oCNpc.inl' 'sdk/UnionProject/GothicAPI/Gothic_UserAPI/oCNpc.inl' -Force
-          Copy-Item 'union/userapi/zCInput_Win32.inl' 'sdk/UnionProject/GothicAPI/Gothic_UserAPI/zCInput_Win32.inl' -Force
+          Copy-Item 'union/hud/*.hpp' 'sdk/UnionProject/Plugin/' -Force
+          Copy-Item 'union/Plugin/*.hpp' 'sdk/UnionProject/Plugin/' -Force
+          Copy-Item 'union/userapi/*.inl' 'sdk/UnionProject/GothicAPI/Gothic_UserAPI/' -Force
       - name: Build native G1 Release / Win32 DLL
         shell: pwsh
+        env:
+          CL: /std:c++17
         run: |
           msbuild 'sdk/UnionProject/UnionProject.vcxproj' /m /p:Configuration="G1 Release" /p:Platform=Win32 /v:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Native G1 DLL build failed' }
       - name: Show built DLL candidates
         shell: pwsh
         run: |
@@ -81,8 +67,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ParryHotter-Union-G1-EXPERIMENTAL
-          path: sdk/**/*.dll
-          if-no-files-found: warn
+          path: sdk/UnionProject/G1 Release/UnionProject.dll
+          if-no-files-found: error
       - name: Prepare clearly labeled experimental G1 DLL
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh

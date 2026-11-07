@@ -11,6 +11,9 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.blender_character_import import import_character, relink_images
+
 
 def main():
     args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -25,20 +28,19 @@ def main():
     import bpy
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    result = bpy.ops.import_scene.fbx(filepath=str(file), use_image_search=True)
+    imported = import_character(bpy, file)
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    if imported["format"] == "OBJ":
+        from tools.blender_legacy_skin import recover_legacy_skin
+        imported["source_skin"] = recover_legacy_skin(bpy, file, meshes)
+        imported["note"] = "Original HP2 bind rig and weights recovered; Gothic reference is still required."
     rigs = [o for o in bpy.data.objects if o.type == "ARMATURE"]
     if not meshes:
         raise RuntimeError("Imported FBX contains no Blender mesh")
 
     # Keep the original FBX rig intact until it can be retargeted to Gothic I.
     # Automatically replacing its armature destroys existing vertex weights.
-    for img in bpy.data.images:
-        if not img.filepath:
-            continue
-        candidate = source / Path(bpy.path.abspath(img.filepath)).name
-        if candidate.exists():
-            img.filepath = str(candidate)
+    relink_images(bpy, source)
     # Convert the FOUR original HP2 PNG textures into Gothic-readable TGAs.
     # Use names that cannot accidentally replace base-game textures. All
     # results stay under the local private folder, never in our GitHub repo.
@@ -56,18 +58,15 @@ def main():
             raise RuntimeError(f"Texture conversion failed: {target}")
         converted_textures.append(target.name)
 
-    for image in bpy.data.images:
-        image_name = Path(bpy.path.abspath(image.filepath)).stem.lower()
-        for index in range(4):
-            if image_name in (f"skharrytex{index}", f"ph_harry_tex{index}"):
-                image.filepath = str(source / f"PH_HARRY_TEX{index}.TGA")
-                break
+    relink_images(bpy, source, converted=True)
 
     destination.parent.mkdir(parents=True, exist_ok=True)
+    bpy.ops.file.pack_all() # The private .blend remains inspectable off this machine.
     bpy.ops.wm.save_as_mainfile(filepath=str(destination))
     info = {
         "source": "Harry Potter and the Chamber of Secrets (PC, 2002)",
-        "blender_result": sorted(result),
+        "blender_result": imported["result"],
+        "import": imported,
         "meshes": [{"name": m.name, "vertices": len(m.data.vertices)} for m in meshes],
         "armatures": [{"name": a.name, "bones": len(a.data.bones)} for a in rigs],
         "destination": str(destination),

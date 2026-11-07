@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from tools.doctor import report, REQUIRED_TEXTURES
+from tools.spell_catalog import REQUIRED_COMPILED_SYMBOLS
 
 
 class DoctorTests(unittest.TestCase):
@@ -20,7 +21,7 @@ class DoctorTests(unittest.TestCase):
         result = report(self.game)
         self.assertIn("[BRAK] GothicStarter_mod.exe", result)
         self.assertIn("[BRAK] ParryHotter.mod", result)
-        self.assertIn("Ikony HUD: 0/14", result)
+        self.assertIn("Ikony HUD: 0/15", result)
         self.assertEqual(sorted(p.name for p in self.system.iterdir()), original)
 
     def test_complete_local_layout_checks_script_and_icons(self):
@@ -34,7 +35,7 @@ class DoctorTests(unittest.TestCase):
         (src / "Content" / "Cutscene").mkdir()
         (src / "Content" / "Cutscene" / "OU.bin").write_bytes(b"PL")
         (src / "_compiled").mkdir()
-        (src / "_compiled" / "Gothic.dat").write_bytes(b"PH_RUNE_FLIPENDO PH_SELECTED_SPELL PH_UNION_LOADED\x00")
+        (src / "_compiled" / "Gothic.dat").write_bytes(b" ".join(REQUIRED_COMPILED_SYMBOLS))
         textures = self.game / "_work" / "DATA" / "Textures"
         textures.mkdir()
         for name in REQUIRED_TEXTURES:
@@ -43,7 +44,8 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("[OK] Runa Flipendo", result)
         self.assertIn("[OK] Mostek HUD/Daedalus PH_SELECTED_SPELL", result)
         self.assertIn("[OK] Ochrona zwyklych czarow Gothic PH_UNION_LOADED", result)
-        self.assertIn("[OK] Ikony HUD: 14/14", result)
+        self.assertIn("[OK] Ikony HUD: 15/15", result)
+        self.assertIn("[OK] Szesc zaklec i dziesiec slotow 1-9,0", result)
         self.assertIn("enableMouse = 1", result)
         self.assertIn("Gothic2_Control = 0", result)
 

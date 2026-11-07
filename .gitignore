@@ -15,3 +15,16 @@
 __pycache__/
 *.pyc
 .parryhotter/
+
+# Private local model bundles and Blender source assets
+ParryHotter-private/
+ParryHotter_Harry_*.zip
+ParryHotter_DEV*_sources_and_model.zip
+*.blend
+*.blend1
+*.fbx
+*.FBX
+*.obj
+*.mtl
+PH_HARRY_TEX*.TGA
+PH_HARRY_TEX*.tga

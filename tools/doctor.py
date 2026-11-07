@@ -5,16 +5,12 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 from pathlib import Path
+if __package__:
+    from .spell_catalog import REQUIRED_TEXTURES, REQUIRED_COMPILED_SYMBOLS
+else:
+    from spell_catalog import REQUIRED_TEXTURES, REQUIRED_COMPILED_SYMBOLS
 
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
-REQUIRED_TEXTURES = (
-    "PH_FLIPENDO.TGA", "PH_LEVICORPUS.TGA", "PH_RICTUSEMPRA.TGA",
-    "PH_EXPELLIARMUS.TGA", "PH_BUMBARDO.TGA", "PH_AVADA.TGA",
-    "PH_TARGET_FLIPENDO.TGA", "PH_TARGET_LEVICORPUS.TGA",
-    "PH_TARGET_RICTUSEMPRA.TGA", "PH_TARGET_EXPELLIARMUS.TGA",
-    "PH_TARGET_BUMBARDO.TGA", "PH_TARGET_AVADA.TGA",
-    "PH_SELECTED.TGA", "PH_RETICLE.TGA",
-)
 
 
 def case_path(base: Path, *parts: str) -> Path:
@@ -82,6 +78,12 @@ def report(game: Path) -> str:
         output.append(
             ("[OK] " if b"ph_selected_spell" in data else "[UWAGA] ")
             + "Mostek HUD/Daedalus PH_SELECTED_SPELL (brak: wykonaj Reparse Scripts)"
+        )
+        missing_symbols = [name for name in REQUIRED_COMPILED_SYMBOLS if name not in data]
+        output.append(
+            ("[OK] " if not missing_symbols else "[UWAGA] ")
+            + "Szesc zaklec i dziesiec slotow 1-9,0 w Gothic.dat"
+            + (" (brak: wykonaj Reparse Scripts)" if missing_symbols else "")
         )
         if source.is_file() and dat.stat().st_mtime < source.stat().st_mtime:
             output.append("[UWAGA] Gothic.dat jest starszy niz ParryHotter.d — wykonaj Reparse")

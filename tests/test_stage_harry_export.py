@@ -23,12 +23,8 @@ class StagingTests(unittest.TestCase):
             )
 
     def make_asc(self, bitmap=b"skharryTex0.png"):
-        content = (
-            b"*3DSMAX_ASCIIEXPORT 200\n*GEOMOBJECT {\n*MESH {\n"
-            + b'*BITMAP "' + bitmap + b'"\n}\n}\n'
-            + b'*MESH_SOFTSKINVERTS {\n1\n"Bip01 Spine2" 1.0\n}\n'
-            + b"// test mesh triangle weights\n" * 20
-        )
+        fixture = Path(__file__).parent / "fixtures" / "harry_triangle.asc.txt"
+        content = fixture.read_bytes().replace(b"PH_HARRY_TEX0.TGA", bitmap)
         (self.original / "PH_HARRY.ASC").write_bytes(content)
 
     def test_stages_export_and_rewrites_png_to_tga_without_touching_source(self):
@@ -51,6 +47,18 @@ class StagingTests(unittest.TestCase):
     def test_wrong_texture_reference_is_rejected(self):
         self.make_asc(b"C:\\secret\\OtherGame.TGA")
         with self.assertRaises(PatchError):
+            stage_export(self.game)
+        self.assertFalse((self.original.parent / "HP2-Harry-converted").exists())
+
+    def test_stale_asc_is_not_installed_after_new_source(self):
+        import os
+        self.make_asc()
+        asc = self.original / "PH_HARRY.ASC"
+        source = self.original / "skharrymesh.fbx"
+        source.write_bytes(b"new source model")
+        os.utime(asc, (100, 100))
+        os.utime(source, (200, 200))
+        with self.assertRaisesRegex(PatchError, "older than"):
             stage_export(self.game)
         self.assertFalse((self.original.parent / "HP2-Harry-converted").exists())
 

@@ -5,9 +5,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
+from contextlib import ExitStack
 from pathlib import Path
 
-from tools.setup import install_bundle, PatchError
+from tools.setup import install_bundle, PatchError, main
 
 
 class SetupTests(unittest.TestCase):
@@ -64,6 +66,8 @@ class SetupTests(unittest.TestCase):
         self.assertIn('name = "Parry Hotter"', hero)
         self.assertIn('Mdl_ApplyOverlayMds(self, "Humans_Mage.mds")', hero)
         self.assertIn("PH_Rune_Avada", hero)
+        self.assertNotIn("PH_Rune_Depulso", hero)
+        self.assertEqual(hero.count("CreateInvItem(self, PH_Rune_"), 6)
         self.assertIn("PH_OnAvadaHit();",
             (self.content / "Magic" / "B_AssessMagic.d").read_text("latin-1"))
         self.assertEqual((self.content / "Cutscene" / "Ou.bin").read_text(), "POLISH DIALOGUE FIXTURE\n")
@@ -79,6 +83,42 @@ class SetupTests(unittest.TestCase):
             install_bundle(self.game, zip_path=self.zip_path)
         self.assertEqual((self.content / "Gothic.src").read_text(), "GERMAN ORIGINAL")
         self.assertFalse((self.system / "ParryHotter.ini").exists())
+        self.assertFalse(list(self.scripts.glob("Content_ParryHotter_Backup_*")))
+
+    def test_converted_bundle_route_skips_source_download_and_blender(self):
+        bundle = Path(self.tmp.name) / "model.zip"
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch("sys.argv", ["setup", "--game", str(self.game), "--model-bundle", str(bundle)]))
+            stack.enter_context(mock.patch("tools.setup.install_bundle", return_value=self.system / "GothicStarter_mod.exe"))
+            stack.enter_context(mock.patch("tools.setup.generate_hud_textures", return_value=[]))
+            stack.enter_context(mock.patch("tools.setup.prepare_wand", return_value=False))
+            stack.enter_context(mock.patch("tools.setup.configure_mouse", return_value=[]))
+            validator = stack.enter_context(mock.patch("tools.import_harry_bundle.validate_harry_bundle"))
+            importer = stack.enter_context(mock.patch("tools.import_harry_bundle.import_harry_bundle"))
+            source = stack.enter_context(mock.patch("tools.setup.prepare_model"))
+            blender = stack.enter_context(mock.patch("tools.setup.prepare_blender_project"))
+            stage = stack.enter_context(mock.patch("tools.setup.stage_export"))
+            self.assertEqual(main(), 0)
+            validator.assert_called_once_with(bundle)
+            importer.assert_called_once_with(self.game, bundle)
+            source.assert_not_called()
+            blender.assert_not_called()
+            stage.assert_not_called()
+
+    def test_invalid_explicit_bundle_is_a_failed_installation(self):
+        # Use the real preflight and real install_bundle. A missing model used
+        # to return failure only after replacing Content and the DEV profile.
+        profile = self.system / "ParryHotter.ini"
+        profile.write_bytes(b"existing profile\r\n")
+        before = {p.relative_to(self.game): p.read_bytes()
+                  for p in self.game.rglob("*") if p.is_file()}
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch("sys.argv", ["setup", "--game", str(self.game),
+                "--zip", str(self.zip_path), "--model-bundle", str(Path(self.tmp.name) / "missing.zip")]))
+            self.assertEqual(main(), 1)
+        after = {p.relative_to(self.game): p.read_bytes()
+                 for p in self.game.rglob("*") if p.is_file()}
+        self.assertEqual(after, before)
         self.assertFalse(list(self.scripts.glob("Content_ParryHotter_Backup_*")))
 
 

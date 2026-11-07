@@ -1,0 +1,39 @@
+*3DSMAX_ASCIIEXPORT 200
+*MATERIAL_LIST {
+    *MATERIAL_COUNT 1
+    *MATERIAL 0 {
+        *MAP_DIFFUSE {
+            *BITMAP "PH_HARRY_TEX0.TGA"
+        }
+    }
+}
+*HELPEROBJECT {
+    *NODE_NAME "Bip01"
+}
+*HELPEROBJECT {
+    *NODE_NAME "Bip01 Spine2"
+    *NODE_PARENT "Bip01"
+}
+*GEOMOBJECT {
+    *NODE_NAME "ZM_HARRY"
+    *NODE_PARENT "Bip01"
+    *MESH_SOFTSKIN {
+        *MESH_NUMVERTEX 3
+        *MESH_NUMFACES 1
+        *MESH_VERTEX_LIST {
+            *MESH_VERTEX 0 0.0 0.0 0.0
+            *MESH_VERTEX 1 1.0 0.0 0.0
+            *MESH_VERTEX 2 0.0 1.0 0.0
+        }
+        *MESH_FACE_LIST {
+            *MESH_FACE 0: A: 0 B: 1 C: 2 AB: 1 BC: 1 CA: 1 *MESH_MTLID 0
+        }
+    }
+}
+*MESH_SOFTSKINVERTS {
+ZM_HARRY
+3
+1 "Bip01 Spine2" 1.0
+1 "Bip01 Spine2" 1.0
+1 "Bip01 Spine2" 1.0
+}

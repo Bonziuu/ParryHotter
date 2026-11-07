@@ -13,21 +13,35 @@ enum class Spell : int {
     Expelliarmus,
     BumbardoMaximus,
     AvadaKedavra,
+    Empty7,
+    Empty8,
+    Empty9,
+    Empty0,
 };
-constexpr int kSpellCount = 6;
+// Ten visible/selectable slots, with six implemented spells and four blanks.
+constexpr int kSpellCount = 10;
+constexpr std::array<bool, kSpellCount> kSpellAvailable{{
+    true, true, true, true, true, true, false, false, false, false
+}};
 constexpr std::array<const char*, kSpellCount> kNames{{
     "Flipendo", "Levicorpus", "Rictusempra",
-    "Expelliarmus", "Bumbardo Maximus", "Avada Kedavra"
+    "Expelliarmus", "Bumbardo Maximus", "Avada Kedavra",
+    "Wolne miejsce", "Wolne miejsce", "Wolne miejsce", "Wolne miejsce"
 }};
 constexpr std::array<const char*, kSpellCount> kTextures{{
     "PH_FLIPENDO.TGA", "PH_LEVICORPUS.TGA",
     "PH_RICTUSEMPRA.TGA", "PH_EXPELLIARMUS.TGA",
-    "PH_BUMBARDO.TGA", "PH_AVADA.TGA"
+    "PH_BUMBARDO.TGA", "PH_AVADA.TGA",
+    "PH_EMPTY.TGA", "PH_EMPTY.TGA", "PH_EMPTY.TGA", "PH_EMPTY.TGA"
+}};
+constexpr std::array<const char*, kSpellCount> kHotkeyLabels{{
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"
 }};
 
 struct Input {
     bool gameplay = false;
-    int slotPressed = 0;     // 0 means no selection, 1..6 are shortcuts
+    // Physical keys 1..9,0 map to 1..10. Zero means no new selection.
+    int slotPressed = 0;
     bool rightHeld = false;
     bool leftHeld = false;
     bool hasLiveNpcTarget = false;
@@ -62,11 +76,11 @@ public:
             selected_ = in.slotPressed - 1;
         }
         if (!in.rightHeld) requireRightRelease_ = false;
-        const bool aiming = in.rightHeld && !requireRightRelease_;
+        const bool aiming = in.rightHeld && !requireRightRelease_ && kSpellAvailable[selected_];
         out.hudVisible = true;
         out.selected = selected_;
         out.aiming = aiming;
-        out.targetSymbolVisible = in.hasLiveNpcTarget;
+        out.targetSymbolVisible = aiming && in.hasLiveNpcTarget;
         out.startAim = aiming && !previousAim_;
         out.stopAim = !aiming && previousAim_;
 
@@ -91,6 +105,10 @@ public:
         previousLeft_ = false;
         leftReleasedSinceAim_ = false;
         requireRightRelease_ = false;
+    }
+    void ResetAfterInterruption() {
+        Reset();
+        requireRightRelease_ = true;
     }
 private:
     int selected_ = 0;

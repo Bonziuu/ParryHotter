@@ -15,7 +15,13 @@ int main() {
     assert(tag.Expired(now + seconds(7)));
     tag.MarkCast(5, now + seconds(8));
     assert(tag.Active(now + seconds(8)) == 6);
-    tag.MarkCast(9, now + seconds(9)); // invalid input ignored
+    for (int slot = 6; slot < 10; ++slot) {
+        tag.MarkCast(slot, now + seconds(9)); // selectable blanks cannot tag hits
+        assert(tag.Active(now + seconds(9)) == 6);
+    }
+    tag.MarkCast(10, now + seconds(9)); // invalid input ignored
+    assert(tag.Active(now + seconds(9)) == 6);
+    tag.MarkCast(-1, now + seconds(9));
     assert(tag.Active(now + seconds(9)) == 6);
     tag.Reset();
     assert(tag.Active(now + seconds(10)) == 0);

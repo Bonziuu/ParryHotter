@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.spell_catalog import HUD_BUILD_MARKER
 
 RELEASE_API = "https://api.github.com/repos/Bonziuu/ParryHotter/releases/tags/hud-dev"
 EXPECTED_NAME = "ParryHotterHUD-G1.dll"
@@ -21,6 +24,17 @@ UA = "ParryHotter-HUD-Installer/0.4"
 
 class HudDownloadError(RuntimeError):
     pass
+
+
+def validate_hud_binary(data: bytes) -> None:
+    if data[:2] != b"MZ":
+        raise HudDownloadError("Downloaded file is not a Windows DLL")
+    if HUD_BUILD_MARKER not in data:
+        raise HudDownloadError(
+            "DLL HUD pochodzi ze starszej lub niezgodnej wersji. "
+            "Zbuduj aktualna wtyczke G1 Release/Win32; stara DLL hud-dev "
+            "nie zawiera nowego ruchu, znakow celu i dziesieciu pol."
+        )
 
 
 def validate_asset(asset: dict) -> tuple[str, str, int]:
@@ -83,8 +97,7 @@ def fetch_verified_hud(destination: Path) -> Path:
         if total != size or h.hexdigest() != digest:
             raise HudDownloadError("HUD DLL failed length/SHA256 verification")
         # PE32 from MSVC. Defend against accidental download of HTML error page.
-        if tmp.read_bytes()[:2] != b"MZ":
-            raise HudDownloadError("Downloaded file is not a Windows DLL")
+        validate_hud_binary(tmp.read_bytes())
         tmp.replace(destination)
     except Exception:
         if tmp.is_file():

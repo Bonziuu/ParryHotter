@@ -10,6 +10,10 @@ from __future__ import annotations
 import argparse
 import re
 from pathlib import Path
+if __package__:
+    from .spell_catalog import RUNE_NAMES
+else:
+    from spell_catalog import RUNE_NAMES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,9 +77,20 @@ def patch_hero(text: str) -> str:
     # supplies the human spellcasting animation set used by Gothic 1 mages.
     mage_overlay = 'Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");'
     if HERO_MARK in text:
-        if mage_overlay not in text:
-            newline = "\r\n" if "\r\n" in text else "\n"
-            text = text.replace(HERO_MARK, HERO_MARK + newline + "    " + mage_overlay, 1)
+        if text.count(HERO_MARK) != 1 or text.count(HERO_END) != 1:
+            raise PatchError("PC_Hero.d: invalid Parry Hotter upgrade markers")
+        begin, end = text.index(HERO_MARK), text.index(HERO_END)
+        if end <= begin:
+            raise PatchError("PC_Hero.d: invalid Parry Hotter upgrade block")
+        newline = "\r\n" if "\r\n" in text else "\n"
+        block = text[begin:end]
+        if mage_overlay not in block:
+            block = block.replace(HERO_MARK, HERO_MARK + newline + "    " + mage_overlay, 1)
+        # Add only missing runes, preserving local additions inside the block.
+        for rune in RUNE_NAMES:
+            if not re.search(r"\bCreateInvItem\s*\(\s*self\s*,\s*PH_Rune_" + rune + r"\s*\)", block, re.IGNORECASE):
+                block = block.rstrip() + newline + f"    CreateInvItem(self, PH_Rune_{rune});" + newline + "    "
+        text = text[:begin] + block + text[end:]
         return patch_hero_temporary_robe(text)
 
     found = re.search(r"(?is)\bINSTANCE\s+PC_Hero\s*\(\s*NPC_DEFAULT\s*\)\s*\{", text)
@@ -108,12 +123,7 @@ def patch_hero(text: str) -> str:
         f"    {HERO_MARK}",
         "    Npc_SetTalentSkill(self, NPC_TALENT_MAGE, 6);",
         '    Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");',
-        "    CreateInvItem(self, PH_Rune_Flipendo);",
-        "    CreateInvItem(self, PH_Rune_Levicorpus);",
-        "    CreateInvItem(self, PH_Rune_Rictusempra);",
-        "    CreateInvItem(self, PH_Rune_Expelliarmus);",
-        "    CreateInvItem(self, PH_Rune_Bumbardo);",
-        "    CreateInvItem(self, PH_Rune_Avada);",
+        *(f"    CreateInvItem(self, PH_Rune_{rune});" for rune in RUNE_NAMES),
         f"    {HERO_END}",
         "",
     ]

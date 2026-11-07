@@ -8,7 +8,7 @@ from unittest import mock
 import shutil
 import io
 
-from tools.model_asset import EXPECTED, ModelAssetError, prepare_model, discover_model_zip, download_asset
+from tools.model_asset import EXPECTED, ModelAssetError, prepare_model, discover_model_zip, download_asset, prepare_visual_first
 
 
 class ModelAssetTests(unittest.TestCase):
@@ -44,6 +44,12 @@ class ModelAssetTests(unittest.TestCase):
             prepare_model(self.game, self.zip_path)
         self.assertFalse((self.game / "_work").exists())
 
+    def test_optional_obj_material_is_preserved_for_legacy_fbx(self):
+        with zipfile.ZipFile(self.zip_path, "a") as archive:
+            archive.writestr("skharrymesh/skharrymesh.mtl", b"newmtl material_0")
+        stage = prepare_model(self.game, self.zip_path)
+        self.assertEqual((stage / "skharrymesh.mtl").read_bytes(), b"newmtl material_0")
+
     def test_model_archive_autodiscovered_in_downloads(self):
         downloads = Path(self.temp.name) / "Downloads"
         downloads.mkdir()
@@ -78,6 +84,26 @@ class ModelAssetTests(unittest.TestCase):
             download_asset(target)
         self.assertEqual(target.read_bytes(), source)
         self.assertFalse(target.with_suffix(".zip.download").exists())
+
+    def test_repeated_prepare_preserves_source_mtime_and_backs_up_changed_source(self):
+        stage = prepare_model(self.game, self.zip_path)
+        source = stage / "skharrymesh.fbx"
+        before = source.stat().st_mtime_ns
+        prepare_model(self.game, self.zip_path)
+        self.assertEqual(source.stat().st_mtime_ns, before)
+        source.write_bytes(b"user's previous model")
+        prepare_model(self.game, self.zip_path)
+        self.assertEqual(source.with_name(source.name + ".parryhotter-original").read_bytes(),
+                         b"user's previous model")
+
+    def test_missing_gothic_reference_reports_precise_blocker(self):
+        import json
+        stage = prepare_model(self.game, self.zip_path)
+        self.assertIsNone(prepare_visual_first(stage))
+        report = json.loads((stage / "Harry_conversion_status.json").read_text())
+        self.assertEqual(report["status"], "missing_gothic_reference")
+        self.assertFalse(report["installed_in_game"])
+        self.assertFalse((self.game / "_work").exists())
 
     def test_unknown_game_folder_fails(self):
         with self.assertRaises(ModelAssetError):

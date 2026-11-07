@@ -3,12 +3,18 @@
 //
 // This is a G1 ENGINE INTEGRATION CANDIDATE, not yet a tested release DLL.
 // It uses the Gothic I API, not Windows screen overlays. Target glyphs,
-// reticle and all six slots are zCView layers rendered inside ZenGin.
+// reticle and all ten slots are zCView layers rendered inside ZenGin.
 //
 // Build template supplies "plugin.h" and UnionAfx.h.
 // See union/README.md before installing the experimental plugin.
 #include "plugin.h"
 #include "UnionAfx.h"
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 #include "SpellHudState.hpp"
 #include "AimCamera.hpp"
 #include "SpellCooldown.hpp"
@@ -17,12 +23,17 @@
 #include "FlightRecovery.hpp"
 #include "ImpactTelemetry.hpp"
 #include "AimTargetState.hpp"
+#include "TargetGlyph.hpp"
+#include "CastLedger.hpp"
 #include <cstdio>
 #include <cmath>
 #include <chrono>
 #include <array>
+#include <cstdint>
 
 #ifdef __G1
+#include "PlayerControls.hpp"
+#include "CastingAnimations.hpp"
 using namespace Gothic_I_Classic;
 
 // Custom damage hook has access to the real victim, attacker and spell ID.
@@ -31,9 +42,22 @@ namespace {
     void ApplyParryImpact(
         oCNpc* victim, const oCNpc::oSDamageDescriptor& descriptor
     );
+    int CastTracked(oCSpell* spell);
+    void BeginDamage(oCNpc*, const oCNpc::oSDamageDescriptor&);
+    void EndDamage();
+    void NotifyCastResult(int slot, bool success);
+    bool OwnsMagicInput();
 }
 
 namespace Gothic_I_Classic {
+    auto& Ivk_PH_OnDamage = UnionCore::CreateHook(
+        static_cast<void (oCNpc::*)(oCNpc::oSDamageDescriptor&)>(&oCNpc::OnDamage),
+        &oCNpc::PH_OnDamage, UnionCore::Hook_Auto);
+    void oCNpc::PH_OnDamage(oSDamageDescriptor& descriptor) {
+        BeginDamage(this, descriptor);
+        THISCALL(Ivk_PH_OnDamage)(descriptor);
+        EndDamage();
+    }
     auto& Ivk_PH_OnDamage_Hit = UnionCore::CreateHook(
         &oCNpc::OnDamage_Hit,
         &oCNpc::PH_OnDamage_Hit,
@@ -44,6 +68,43 @@ namespace Gothic_I_Classic {
         // Native damage/collision/AI always has priority.
         THISCALL(Ivk_PH_OnDamage_Hit)(descriptor);
         ApplyParryImpact(this, descriptor);
+    }
+
+    auto& Ivk_PH_Cast = UnionCore::CreateHook(
+        &oCSpell::Cast, &oCSpell::PH_Cast, UnionCore::Hook_Auto);
+    int oCSpell::PH_Cast() { return CastTracked(this); }
+
+    auto& Ivk_PH_HumanAI = UnionCore::CreateHook(
+        &oCAIHuman::DoAI, &oCAIHuman::PH_DoAI, UnionCore::Hook_Auto);
+    void oCAIHuman::PH_DoAI(zCVob* vob, int& state) {
+        ParryControls::BeforeHumanAI(this);
+        THISCALL(Ivk_PH_HumanAI)(vob, state);
+        ParryControls::AfterHumanAI(this);
+    }
+    auto& Ivk_PH_WeaponChoose = UnionCore::CreateHook(
+        &oCAIHuman::WeaponChoose, &oCAIHuman::PH_WeaponChoose, UnionCore::Hook_Auto);
+    void oCAIHuman::PH_WeaponChoose() {
+        // Number keys belong to spells even when F11 restores native movement.
+        if (npc == player && ParryControls::ContextAvailable()) return;
+        THISCALL(Ivk_PH_WeaponChoose)();
+    }
+    auto& Ivk_PH_MagicMode = UnionCore::CreateHook(
+        &oCAIHuman::MagicMode, &oCAIHuman::PH_MagicMode, UnionCore::Hook_Auto);
+    int oCAIHuman::PH_MagicMode() {
+        // Invest/cast are driven exactly once by our PPM -> LPM controller.
+        if (npc == player && OwnsMagicInput()) return 1;
+        return THISCALL(Ivk_PH_MagicMode)();
+    }
+    auto& Ivk_PH_CameraAI = UnionCore::CreateHook(
+        &zCAICamera::DoAI, &zCAICamera::PH_DoAI, UnionCore::Hook_Auto);
+    void zCAICamera::PH_DoAI(zCVob* vob, int& state) {
+        ParryControls::UpdateCamera(this);
+        THISCALL(Ivk_PH_CameraAI)(vob, state);
+    }
+    auto& Ivk_PH_CameraKeys = UnionCore::CreateHook(
+        &zCAICamera::CheckKeys, &zCAICamera::PH_CheckKeys, UnionCore::Hook_Auto);
+    void zCAICamera::PH_CheckKeys() {
+        if (!ParryControls::OwnsInput()) THISCALL(Ivk_PH_CameraKeys)();
     }
 }
 
@@ -60,6 +121,8 @@ namespace Gothic_I_Classic {
 
     void zCInput_Win32::PH_ProcessInputEvents() {
         THISCALL(Ivk_PH_ProcessInputEvents)();
+        ParryControls::CaptureInput(this);
+        if (!ParryControls::ContextAvailable()) return;
         if (!this->GetMouseButtonPressedRight()) return;
         if (this->GetState(GAME_SMOVE) == 0.0f) return;
 
@@ -79,34 +142,203 @@ namespace {
     constexpr int kSize = 510;     // 8192x8192 resolution-independent coords
     constexpr int kSpace = 92;
     constexpr int kGap = 32;
-    constexpr int kLeft = (8192 - (6 * kSize + 5 * kGap)) / 2;
-    constexpr int kTop = 7440;
-    constexpr int kTargetSize = 400;
+    constexpr int kLeft = (8192 - (ParryHotter::kSpellCount * kSize +
+                                  (ParryHotter::kSpellCount - 1) * kGap)) / 2;
+    constexpr int kTargetSize = 720;
+    int SlotHeight() { return screen->any(screen->nax(kSize)); }
+    int HudTop() { return 8192 - SlotHeight() - 180; }
 
     // These are the existing spells used by mod/Magic/ParryHotter.d.
-    constexpr std::array<int, 6> kGothicSpellIds{{
+    constexpr std::array<int, ParryHotter::kSpellCount> kGothicSpellIds{{
         SPL_WINDFIST, SPL_ICECUBE, SPL_BERZERK,
-        SPL_THUNDERBALL, SPL_STORMFIST, SPL_BREATHOFDEATH
+        SPL_THUNDERBALL, SPL_STORMFIST, SPL_BREATHOFDEATH, -1, -1, -1, -1
     }};
-    constexpr std::array<int, 6> kHotkeys{{
-        KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6
+    constexpr std::array<int, ParryHotter::kSpellCount> kHotkeys{{
+        KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0
     }};
-    constexpr std::array<const char*, 6> kTargetTextures{{
+    constexpr std::array<const char*, ParryHotter::kSpellCount> kTargetTextures{{
         "PH_TARGET_FLIPENDO.TGA",
         "PH_TARGET_LEVICORPUS.TGA",
         "PH_TARGET_RICTUSEMPRA.TGA",
         "PH_TARGET_EXPELLIARMUS.TGA",
         "PH_TARGET_BUMBARDO.TGA",
-        "PH_TARGET_AVADA.TGA"
+        "PH_TARGET_AVADA.TGA", nullptr, nullptr, nullptr, nullptr
     }};
 
     ParryHotter::Controller gController;
     ParryHotter::AimCamera gCamera;
     ParryHotter::SpellCooldown gCooldown;
-    ParryHotter::SpellImpactTag gImpactTag;
-    oCNpc* gCastTarget = nullptr;
-    bool gImpactApplied = false;
-    bool gImpactAttempted = false;
+    ParryHotter::CastLedger gCasts;
+    struct CastReferences {
+        ParryHotter::CastLedger::Id id = 0;
+        std::array<oCVisualFX*, 4> effects{};
+        oCNpc* target = nullptr;
+    };
+    std::array<CastReferences, ParryHotter::CastLedger::Capacity> gCastReferences{};
+    oCSpell* gRequestedSpell = nullptr;
+    int gRequestedSlot = -1;
+    oCNpc* gRequestedTarget = nullptr;
+    std::uint64_t gRequestGeneration = 0;
+    bool gCastConfirmed = false;
+    ParryHotter::CastLedger::TimePoint gRequestExpires{};
+    ParryHotter::CastLedger::Id gHitCast = 0;
+    int gHitSlot = -1;
+    struct DamageFrame { ParryHotter::CastLedger::Id id; int slot; };
+    std::array<DamageFrame, 32> gDamageFrames{};
+    unsigned int gDamageDepth = 0;
+
+    void WriteScriptSlot(int slot) {
+        if (!parser) return;
+        auto* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
+        if (symbol) symbol->SetValue(slot >= 0 ? slot + 1 : 0, 0);
+    }
+
+    void ReleaseCastRequest() {
+        auto* spell = gRequestedSpell;
+        auto* target = gRequestedTarget;
+        gRequestedSpell = nullptr;
+        gRequestedTarget = nullptr;
+        gRequestedSlot = -1;
+        ++gRequestGeneration;
+        if (spell) spell->Release();
+        if (target) target->Release();
+    }
+
+    void ReapCasts(bool clear = false) {
+        const auto now = ParryHotter::CastLedger::Clock::now();
+        if (clear) gCasts.Clear(); else gCasts.Expire(now);
+        for (auto& entry : gCastReferences) {
+            if (!entry.id || gCasts.FindById(entry.id, now).id) continue;
+            const auto expired = entry;
+            entry = {}; // Destructors may call back into damage handling.
+            for (auto* effect : expired.effects) if (effect) effect->Release();
+            if (expired.target) expired.target->Release();
+        }
+    }
+
+    ParryHotter::CastLedger::Id TrackEffect(
+        oCSpell* spell, oCNpc* target, int slot, std::uint64_t generation,
+        ParryHotter::CastLedger::Id existing = 0
+    ) {
+        if (!spell || !target || generation != gRequestGeneration) return existing;
+        ReapCasts();
+        // Releasing an expired native FX can invoke scripts/lifecycle hooks.
+        if (generation != gRequestGeneration || !spell->effect) return existing;
+        auto* effect = spell->effect;
+        const auto now = ParryHotter::CastLedger::Clock::now();
+        for (auto& entry : gCastReferences) {
+            if ((existing && entry.id != existing) || (!existing && entry.id)) continue;
+            auto id = existing;
+            if (!id) {
+                id = gCasts.Stage(
+                    reinterpret_cast<ParryHotter::CastLedger::Token>(effect),
+                    reinterpret_cast<ParryHotter::CastLedger::Token>(target),
+                    spell->GetSpellID(), slot, now);
+                if (!id) return 0;
+                target->AddRef();
+                entry.id = id;
+                entry.target = target;
+            }
+            for (auto* retained : entry.effects) if (retained == effect) return id;
+            for (auto& retained : entry.effects) {
+                if (retained) continue;
+                if (!gCasts.AddEffectAlias(id,
+                        reinterpret_cast<ParryHotter::CastLedger::Token>(effect), now)) return id;
+                effect->AddRef();
+                retained = effect;
+                return id;
+            }
+            return id;
+        }
+        return existing;
+    }
+
+    int CastTracked(oCSpell* spell) {
+        const bool ours = spell && spell == gRequestedSpell && spell->spellCasterNpc == player &&
+            gRequestedTarget && gRequestedSlot >= 0 &&
+            gRequestedSlot < ParryHotter::kSpellCount &&
+            spell->GetSpellID() == kGothicSpellIds[gRequestedSlot];
+        const auto generation = gRequestGeneration;
+        const int slot = gRequestedSlot;
+        auto* target = ours ? gRequestedTarget : nullptr;
+        // Native Cast runs scripts and damage hooks. Those callbacks can cancel
+        // or replace the request; retain the objects and identify this request.
+        if (ours) { spell->AddRef(); target->AddRef(); }
+        const auto sameRequest = [&] {
+            return generation == gRequestGeneration && spell == gRequestedSpell;
+        };
+        auto id = ours ? TrackEffect(spell, target, slot, generation) : 0;
+        const int result = (spell->*Gothic_I_Classic::Ivk_PH_Cast)();
+        if (ours) {
+            if (result != 0) {
+                if (sameRequest()) id = TrackEffect(spell, target, slot, generation, id);
+                // A completed projectile remains identifiable after aiming
+                // was cancelled. Clear() never reuses pre-transition IDs.
+                if (id) gCasts.Confirm(id, ParryHotter::CastLedger::Clock::now());
+            } else if (id) {
+                gCasts.Revoke(id);
+                ReapCasts();
+            }
+            if (sameRequest()) {
+                gCastConfirmed = result != 0;
+                NotifyCastResult(slot, result != 0);
+                ReleaseCastRequest();
+            }
+        }
+        if (ours) { target->Release(); spell->Release(); }
+        return result;
+    }
+
+    ParryHotter::CastLedger::Match IdentifyHit(
+        oCNpc* victim, const oCNpc::oSDamageDescriptor& descriptor
+    ) {
+        if (!victim || descriptor.pNpcAttacker != player ||
+            !(descriptor.dwFieldsValid & oCNpc::oEDamageDescFlag_SpellID) ||
+            !(descriptor.dwFieldsValid & oCNpc::oEDamageDescFlag_VisualFX)) return {};
+        const auto now = ParryHotter::CastLedger::Clock::now();
+        const auto victimToken = reinterpret_cast<ParryHotter::CastLedger::Token>(victim);
+        ParryHotter::CastLedger::Match identified{};
+        for (auto* original : {descriptor.pFXHit, descriptor.pVisualFX}) {
+            auto* effect = original;
+            for (int depth = 0; effect && depth < 8; ++depth) {
+                const auto match = gCasts.Resolve(
+                    reinterpret_cast<ParryHotter::CastLedger::Token>(effect),
+                    victimToken, static_cast<int>(descriptor.nSpellID), now);
+                if (match.state == ParryHotter::CastLedger::MatchState::Ambiguous)
+                    return match;
+                if (match.state == ParryHotter::CastLedger::MatchState::Matched) {
+                    if (identified.id && identified.id != match.id)
+                        return {ParryHotter::CastLedger::MatchState::Ambiguous, 0, -1, false};
+                    identified = match;
+                }
+                if (effect->root && effect->root != effect) effect = effect->root;
+                else effect = effect->parent;
+            }
+        }
+        return identified;
+    }
+
+    void BeginDamage(oCNpc* victim, const oCNpc::oSDamageDescriptor& descriptor) {
+        if (gDamageDepth < gDamageFrames.size())
+            gDamageFrames[gDamageDepth] = {gHitCast, gHitSlot};
+        ++gDamageDepth;
+        const auto match = IdentifyHit(victim, descriptor);
+        const bool exact = gDamageDepth <= gDamageFrames.size() &&
+            match.state == ParryHotter::CastLedger::MatchState::Matched;
+        gHitCast = exact ? match.id : 0;
+        gHitSlot = exact ? match.slot : -1;
+        WriteScriptSlot(gHitSlot);
+    }
+
+    void EndDamage() {
+        if (gDamageDepth) --gDamageDepth;
+        if (gDamageDepth < gDamageFrames.size()) {
+            const auto frame = gDamageFrames[gDamageDepth];
+            gHitCast = frame.id;
+            gHitSlot = frame.slot;
+        } else { gHitCast = 0; gHitSlot = -1; }
+        WriteScriptSlot(gHitSlot);
+    }
     ParryHotter::ImpactTelemetry gTelemetry;
     bool gDiagnosticVisible = false;
     bool gDiagnosticDirty = true;
@@ -190,15 +422,6 @@ namespace {
         gFlightRecovery.Start(ParryHotter::FlightRecovery::Clock::now());
     }
 
-    void ClearCastTarget() {
-        if (gCastTarget) {
-            gCastTarget->Release();
-            gCastTarget = nullptr;
-        }
-        gImpactApplied = false;
-        gImpactAttempted = false;
-    }
-
     bool Clearance(zCWorld* world, oCNpc* npc,
                    const zVEC3& origin, const zVEC3& direction) {
         if (!world) return false;
@@ -214,20 +437,19 @@ namespace {
         oCNpc* victim, const oCNpc::oSDamageDescriptor& descriptor
     ) {
         if (!victim || victim == player || !player ||
-            victim != gCastTarget || gImpactApplied ||
+            !gHitCast ||
             victim->IsDead() || !victim->IsHuman()) return;
         if (descriptor.pNpcAttacker != player ||
             !(descriptor.dwFieldsValid & oCNpc::oEDamageDescFlag_SpellID))
             return;
         const auto now = ParryHotter::SpellImpactTag::Clock::now();
-        const int active = gImpactTag.Active(now);
+        const int active = gHitSlot + 1;
         const bool levi = active == 2 && descriptor.nSpellID == SPL_ICECUBE;
         const bool bomb = active == 5 && descriptor.nSpellID == SPL_STORMFIST;
         if (!levi && !bomb) return;
-        if (gImpactAttempted) return;
+        if (!gCasts.TryMarkImpact(gHitCast, now)) return;
         // One diagnostic outcome per real spell hit, even if damage-over-time
         // reports the same impact again. Never spam the HUD with duplicates.
-        gImpactAttempted = true;
         NoteImpact(ParryHotter::ImpactEvent::Recognized);
 
         // ZenGin remains in control of falling, collisions and AI.
@@ -277,7 +499,6 @@ namespace {
         ));
         BeginFlight(victim, bomb);
         NoteImpact(ParryHotter::ImpactEvent::Launched);
-        gImpactApplied = true; // no repeated impulses from damage-over-time
     }
 
     bool NearSolidFloor(oCNpc* npc) {
@@ -333,19 +554,57 @@ namespace {
         }
     }
 
-    std::array<zCView*, 6> gSlots{};
-    std::array<zCView*, 6> gTargetIcons{};
+    std::array<zCView*, ParryHotter::kSpellCount> gSlots{};
+    std::array<zCView*, ParryHotter::kSpellCount> gTargetIcons{};
     zCView* gSelection = nullptr;
     zCView* gReticle = nullptr;
     bool gAiming = false;
     bool gManaPrepared = false;
+    bool OwnsMagicInput() { return gAiming && ParryControls::ContextAvailable(); }
+    void NotifyCastResult(int slot, bool success) {
+        if (success) {
+            gCooldown.MarkPreparedCast(slot, ParryHotter::SpellCooldown::Clock::now());
+            gManaPrepared = false;
+        }
+    }
     int gShownTargetSlot = -1;
     int gActiveSlot = 0;
     bool gAttached = false;
-    std::array<int, 6> gSlotDimmed{{-1, -1, -1, -1, -1, -1}};
+    std::array<int, ParryHotter::kSpellCount> gSlotDimmed{};
     zCModel* gWandModel = nullptr;
     zCModelNodeInst* gWandSocket = nullptr;
     zCVisual* gWandVisual = nullptr;
+    zCModel* gHarryModel = nullptr;
+    oCItem* gHarryArmor = nullptr;
+    void DetachWand();
+
+    void KeepHarryAppearance() {
+        if (!player || !parser || !player->IsHuman() ||
+            !parser->GetSymbol(zSTRING("PH_ARMOR_HARRY"))) {
+            gHarryModel = nullptr;
+            gHarryArmor = nullptr;
+            return;
+        }
+        auto* model = player->GetModel();
+        auto* armor = player->GetEquippedArmor();
+        if (!model || (model == gHarryModel && armor == gHarryArmor)) return;
+        gHarryModel = model;
+        gHarryArmor = armor;
+        // Probe the real mesh first. A missing optional asset must never
+        // erase the playable Gothic body. Equipment retains its normal stats.
+        if (!model->ApplyMeshLib(zSTRING("PH_HARRY.ASC"))) return;
+        DetachWand();
+        model->RemoveMeshLibAll();
+        if (!model->ApplyMeshLib(zSTRING("PH_HARRY.ASC"))) {
+            // Rebuild the NPC's ordinary equipped model if the native mesh
+            // loader fails after the probe; never leave an invisible player.
+            player->InitModel();
+            gHarryModel = player->GetModel();
+            return;
+        }
+        auto* oldHead = model->SearchNode(zSTRING("BIP01 HEAD"));
+        if (oldHead) model->SetNodeVisual(oldHead, nullptr, 0);
+    }
     // Only render on a native, unused right-hand attachment point. Never
     // replace an equipped melee weapon or persistent character mesh.
     void DetachWand() {
@@ -389,19 +648,19 @@ namespace {
 
     void BuildHud() {
         if (!screen || gReticle) return;
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < ParryHotter::kSpellCount; ++i) {
             const int x = kLeft + i * (kSize + kGap);
             gSlots[i] = NewSprite(
-                x, kTop, kSize, kSize, ParryHotter::kTextures[i]
+                x, HudTop(), kSize, SlotHeight(), ParryHotter::kTextures[i]
             );
-            gTargetIcons[i] = NewSprite(
+            if (kTargetTextures[i]) gTargetIcons[i] = NewSprite(
                 4096 + kSpace, 4096 - kTargetSize / 2,
                 kTargetSize, kTargetSize, kTargetTextures[i]
             );
             // Text is created once, rather than leaking text every frame.
-            gSlots[i]->Print(35, 30, zSTRING(i + 1));
+            gSlots[i]->Print(35, 30, zSTRING(ParryHotter::kHotkeyLabels[i]));
         }
-        gSelection = NewSprite(kLeft, kTop, kSize, kSize, "PH_SELECTED.TGA");
+        gSelection = NewSprite(kLeft, HudTop(), kSize, SlotHeight(), "PH_SELECTED.TGA");
         gReticle = NewSprite(4096 - 48, 4096 - 48, 96, 96, "PH_RETICLE.TGA");
     }
 
@@ -427,8 +686,11 @@ namespace {
         gActiveSlot = 0;
         gAiming = false;
         gManaPrepared = false;
+        gHarryModel = nullptr;
+        gHarryArmor = nullptr;
         gSlotDimmed.fill(-1);
-        gController.Reset();
+        ParryCasting::Forget();
+        gController.ResetAfterInterruption();
     }
 
     void ShowHud() {
@@ -443,7 +705,7 @@ namespace {
     }
 
     void ShowSlotAvailability(int mana, ParryHotter::SpellCooldown::TimePoint now) {
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < ParryHotter::kSpellCount; ++i) {
             const bool preparing = gAiming && gManaPrepared &&
                                     gController.Selected() == i;
             const int dim = (preparing || gCooldown.Ready(i, mana, now)) ? 0 : 1;
@@ -458,20 +720,62 @@ namespace {
     void ShowSelection(int spell) {
         if (!gSelection || !screen || spell == gActiveSlot) return;
         screen->RemoveItem(gSelection);
-        gSelection->SetPos(kLeft + spell * (kSize + kGap), kTop);
+        gSelection->SetPos(kLeft + spell * (kSize + kGap), HudTop());
         screen->InsertItem(gSelection);
         gActiveSlot = spell;
     }
 
-    void ShowTarget(bool hasTarget, int spell) {
+    void ShowTarget(bool hasTarget, int spell, oCNpc* npc = nullptr) {
         if (!screen || !gReticle) return;
-        const int targetIndex = hasTarget ? spell : -1;
-        if (targetIndex == gShownTargetSlot) return;
-        if (gShownTargetSlot >= 0) {
+        ParryHotter::TargetGlyphLayout glyph{};
+        auto* camera = zCCamera::activeCam;
+        if (hasTarget && npc && camera && gAiming && gManaPrepared &&
+            spell >= 0 && spell < ParryHotter::kSpellCount &&
+            kTargetTextures[spell] && gCooldown.ReadyByTime(
+                spell, ParryHotter::SpellCooldown::Clock::now())) {
+            auto* book = player ? player->GetSpellBook() : nullptr;
+            auto* prepared = book ? book->GetSelectedSpell() : nullptr;
+            if (!prepared || prepared->GetSpellID() != kGothicSpellIds[spell] ||
+                !prepared->GetEnabled() || !prepared->IsValidTarget(npc) ||
+                prepared->GetSpellStatus() == SPL_STATUS_STOP ||
+                prepared->GetSpellStatus() == SPL_STATUS_DONTINVEST) {
+                hasTarget = false;
+            }
+        }
+        if (hasTarget && npc && camera && gAiming && gManaPrepared &&
+            spell >= 0 && spell < ParryHotter::kSpellCount && kTargetTextures[spell] &&
+            gCooldown.ReadyByTime(spell, ParryHotter::SpellCooldown::Clock::now())) {
+            // Anchor the glyph at the NPC's upper torso, not at the crosshair.
+            zVEC3 anchor = npc->bbox3D.mins +
+                (npc->bbox3D.maxs - npc->bbox3D.mins) * zVEC3(0.5f);
+            anchor[1] += (npc->bbox3D.maxs[1] - npc->bbox3D.mins[1]) * 0.18f;
+            const zVEC3 cameraSpace = camera->camMatrix * anchor;
+            if (cameraSpace[2] > camera->nearClipZ) {
+                float x = 0.0f, y = 0.0f;
+                camera->Project(&cameraSpace, x, y);
+                ParryHotter::TargetGlyphInput input{};
+                input.aiming = input.targetValid = input.spellReady = true;
+                input.inFront = input.lineOfSight = true; // center ray was unobstructed
+                input.anchorX = x;
+                input.anchorY = y;
+                input.viewportWidth = float(screen->psizex);
+                input.viewportHeight = float(screen->psizey);
+                input.baseSize = float(screen->nax(kTargetSize));
+                input.seconds = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
+                glyph = ParryHotter::ComputeTargetGlyph(input);
+            }
+        }
+        const int targetIndex = glyph.visible ? spell : -1;
+        if (gShownTargetSlot >= 0 && targetIndex != gShownTargetSlot) {
             screen->RemoveItem(gTargetIcons[gShownTargetSlot]);
         }
         if (targetIndex >= 0) {
-            screen->InsertItem(gTargetIcons[targetIndex]);
+            auto* icon = gTargetIcons[targetIndex];
+            icon->SetPos(screen->anx(glyph.x), screen->any(glyph.y));
+            icon->SetSize(screen->anx(glyph.width), screen->any(glyph.height));
+            icon->SetTransparency(glyph.transparency);
+            if (targetIndex != gShownTargetSlot) screen->InsertItem(icon);
         }
         gShownTargetSlot = targetIndex;
     }
@@ -534,22 +838,26 @@ namespace {
         return npc;
     }
 
-    bool HasValidNpcTarget() {
-        return GetCenteredNpcTarget() != nullptr;
-    }
-
     // Use the native spellbook so that mana, target rules and Gothic visual FX
     // still apply. Test the call ordering on a LOCAL Gothic I installation;
     // engine variations (Steam + Union) may require an event hook.
     void RaiseWand(int spellSlot) {
-        if (!player) return;
+        if (!ParryControls::ContextAvailable() ||
+            spellSlot < 0 || spellSlot >= ParryHotter::kSpellCount ||
+            kGothicSpellIds[spellSlot] < 0) return;
+        ReleaseCastRequest();
         const int mana = player->GetAttribute(NPC_ATR_MANA);
         const auto now = ParryHotter::SpellCooldown::Clock::now();
         if (gAiming) {
-            DetachWand();
-            player->UnreadySpell();
+            auto* actor = player;
+            const auto generation = gRequestGeneration;
             gAiming = false;
             gManaPrepared = false;
+            DetachWand();
+            ParryCasting::Restore(player->human_ai, player->GetModel());
+            if (generation != gRequestGeneration || player != actor || gAiming)
+                return;
+            player->UnreadySpell();
         }
         // Check mana BEFORE Gothic invests it. Do not re-check during casting.
         if (!gCooldown.Ready(spellSlot, mana, now)) return;
@@ -557,16 +865,41 @@ namespace {
         // ReadySpell returns an undocumented integer in Gothic 1. Never
         // assume 0 means failure; native Spell_Cast performs the final check.
         player->ReadySpell(id, 0);
+        auto* book = player->GetSpellBook();
+        auto* prepared = book ? book->GetSelectedSpell() : nullptr;
+        if (!prepared || prepared->GetSpellID() != id || !prepared->GetEnabled()) {
+            player->UnreadySpell();
+            return;
+        }
+        // Native invest animations work on the Gothic skeleton used by Harry.
+        if (player->human_ai) {
+            // Optional player overlay supplies the same native transition
+            // handles for all six spells, including one-phase Gothic spells.
+            // Incomplete/unloaded animation assets keep the native defaults.
+            ParryCasting::Bind(player->human_ai, player->GetModel());
+            player->human_ai->TransitionToInvest();
+        }
         gManaPrepared = true;
         gAiming = true;
         AttachWand();
     }
 
     void LowerWand() {
-        DetachWand();
-        if (player && gAiming) player->UnreadySpell();
+        const bool wasAiming = gAiming;
+        auto* actor = player;
         gAiming = false;
         gManaPrepared = false;
+        ReleaseCastRequest();
+        if (player != actor || gAiming || gRequestedSpell) return;
+        const auto generation = gRequestGeneration;
+        DetachWand();
+        if (player) ParryCasting::Restore(player->human_ai, player->GetModel());
+        else ParryCasting::Forget();
+        // A cancellation callback may have loaded another world or started a
+        // new request. Do not unready that replacement actor/request on return.
+        if (generation != gRequestGeneration || player != actor || gAiming ||
+            gRequestedSpell) return;
+        if (player && wasAiming) player->UnreadySpell();
     }
 
     void SetUnionPresence(bool enabled) {
@@ -576,29 +909,21 @@ namespace {
     }
 
     void ResetSelectedSpellForScript() {
+        ReleaseCastRequest();
         ClearFlight();
-        ClearCastTarget();
-        gImpactTag.Reset();
+        ReapCasts(true);
+        gHitCast = 0;
+        gHitSlot = -1;
+        gDamageDepth = 0;
         if (!parser) return;
         zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
         if (symbol) symbol->SetValue(0, 0);
     }
 
-    void SyncSelectedSpellForScript(int slot, oCNpc* target) {
-        // Keep the last genuine center-ray target so a later projectile
-        // impact does not accidentally move a different focused NPC.
-        if (!parser || slot < 0 || slot >= 6 || !target) return;
-        zCPar_Symbol* symbol = parser->GetSymbol(zSTRING("PH_SELECTED_SPELL"));
-        if (!symbol) return;
-        ClearCastTarget();
-        target->AddRef();
-        gCastTarget = target;
-        symbol->SetValue(slot + 1, 0);
-        gImpactTag.MarkCast(slot, ParryHotter::SpellImpactTag::Clock::now());
-    }
-
     bool CastAtCenteredNpc(int slot) {
-        if (!player) return false;
+        if (!ParryControls::ContextAvailable() || gRequestedSpell ||
+            slot < 0 || slot >= ParryHotter::kSpellCount ||
+            !ParryHotter::kSpellAvailable[slot]) return false;
         oCNpc* target = GetCenteredNpcTarget();
         if (!target) return false;
         oCMag_Book* spellbook = player->GetSpellBook();
@@ -606,12 +931,35 @@ namespace {
             SetAimTargetState(ParryHotter::AimTargetState::NoSpellBook);
             return false;
         }
+        auto* spell = spellbook->GetSelectedSpell();
+        if (!spell || spell->GetSpellID() != kGothicSpellIds[slot] ||
+            !spell->GetEnabled() || !spell->IsValidTarget(target)) return false;
+        const int status = spell->GetSpellStatus();
+        if (status == SPL_STATUS_STOP || status == SPL_STATUS_DONTINVEST)
+            return false;
         // Bind the game engine's target to the actual center-screen NPC.
         // Gothic's own focus detection may otherwise select a neighbor.
         player->SetFocusVob(static_cast<zCVob*>(target));
-        SyncSelectedSpellForScript(slot, target);
+        // Selecting a focus alone does not rebind an already prepared spell.
+        spell->spellTarget = target;
+        spell->spellTargetNpc = target;
+        if (spell->effect) spell->effect->SetTarget(static_cast<zCVob*>(target));
+        gRequestedSpell = spell;
+        gRequestedSlot = slot;
+        gRequestedTarget = target;
+        spell->AddRef();
+        target->AddRef();
+        gRequestExpires = ParryHotter::CastLedger::Clock::now() +
+            std::chrono::seconds(2);
+        gCastConfirmed = false;
+        if (player->human_ai) {
+            ParryCasting::Bind(player->human_ai, player->GetModel());
+            player->human_ai->TransitionToCast();
+        }
         spellbook->Spell_Cast();
-        return true;
+        // The native animation may call oCSpell::Cast on a later frame.
+        // Its hook is the sole place that starts the cooldown on success.
+        return gCastConfirmed || gRequestedSpell != nullptr;
     }
 
     void GameTick() {
@@ -619,18 +967,20 @@ namespace {
             ogame && screen && player && zinput &&
             !ogame->inLoadSaveGame && !ogame->inLevelChange &&
             !player->openinventory &&
+            !ogame->IsOnPause() && !player->IsDead() &&
+            oCInformationManager::GetInformationManager().HasFinished() &&
             (!zCAICamera::current || !zCAICamera::current->inCutsceneMode);
         if (!gameplay) {
             // Opening inventory, changing levels or entering a cutscene
             // cancels unfinished air tracking. Never animate a paused NPC.
             if (gFlightRecovery.Active())
                 NoteImpact(ParryHotter::ImpactEvent::Interrupted);
-            if (gFlightRecovery.Active() || gCastTarget ||
-                gImpactTag.Active(ParryHotter::SpellImpactTag::Clock::now()))
+            if (gFlightRecovery.Active() || gCasts.Size(ParryHotter::CastLedger::Clock::now()))
                 ResetSelectedSpellForScript();
             HideDiagnostics();
+            ParryControls::Disable();
             gCamera.Restore(zCAICamera::current);
-            if (gAiming) LowerWand();
+            if (gAiming || gRequestedSpell) LowerWand();
             gController.Step({});
             ShowTarget(false, gActiveSlot);
             return;
@@ -639,8 +989,10 @@ namespace {
             gDiagnosticVisible = !gDiagnosticVisible;
             gDiagnosticDirty = true;
         }
-        int hotkey = 0;
-        for (int i = 0; i < 6; ++i) {
+        const bool inputAllowed = ParryControls::ContextAvailable();
+        int hotkey = inputAllowed && ParryControls::OwnsInput()
+            ? ParryControls::GetInput().slotPressed : 0;
+        for (int i = 0; inputAllowed && !hotkey && i < ParryHotter::kSpellCount; ++i) {
             if (zinput->KeyToggled(kHotkeys[i])) {
                 hotkey = i + 1;
                 break;
@@ -648,23 +1000,33 @@ namespace {
         }
         const bool right = zinput->GetMouseButtonPressedRight() != 0;
         const bool left = zinput->GetMouseButtonPressedLeft() != 0;
-        const bool target = HasValidNpcTarget();
-        ParryHotter::Input input{true, hotkey, right, left, target};
+        oCNpc* targetNpc = inputAllowed ? GetCenteredNpcTarget() : nullptr;
+        const bool target = targetNpc != nullptr;
+        ParryHotter::Input input{inputAllowed, hotkey, right, left, target};
         auto out = gController.Step(input);
+
+        // Falling unconscious, swimming or entering a scripted action cancels
+        // preparation. Already fired projectiles retain their hit records.
+        if (!inputAllowed && (gAiming || gRequestedSpell)) LowerWand();
 
         const auto now = ParryHotter::SpellCooldown::Clock::now();
         UpdateFlight(now);
-        if (gImpactTag.Expired(now)) ResetSelectedSpellForScript();
+        ReapCasts();
+        if (gRequestedSpell && now >= gRequestExpires) LowerWand();
+        KeepHarryAppearance();
         const int mana = player->GetAttribute(NPC_ATR_MANA);
         ShowHud();
         ShowSlotAvailability(mana, now);
         ShowSelection(out.selected);
-        ShowTarget(out.targetSymbolVisible, out.selected);
+        ShowTarget(out.targetSymbolVisible, out.selected, targetNpc);
         DrawDiagnostics();
         // Keep the Gothic camera's own mouse rotation and collision.
         // Our helper only moves the distance/shoulder for spell targeting,
         // and restores previous values after PPM is released.
-        gCamera.Update(zCAICamera::current, out.aiming);
+        if (inputAllowed)
+            gCamera.Update(zCAICamera::current, out.aiming, ParryControls::FrameSeconds());
+        else
+            gCamera.Restore(zCAICamera::current);
 
         if (out.stopAim) {
             LowerWand();
@@ -673,6 +1035,8 @@ namespace {
             RaiseWand(out.selected);
         }
         if (out.aiming && gAiming) {
+            if (player->human_ai)
+                ParryCasting::Bind(player->human_ai, player->GetModel());
             AttachWand(); // Model may have changed with a clothing swap.
         }
         if (out.aiming && !gManaPrepared &&
@@ -680,7 +1044,7 @@ namespace {
             // Holding PPM can re-arm after the previous cooldown expires.
             RaiseWand(out.selected);
         }
-        if (out.aiming && gAiming && gManaPrepared && player->GetSpellBook() &&
+        if (out.aiming && gAiming && gManaPrepared && !gRequestedSpell && player->GetSpellBook() &&
             gCooldown.ReadyByTime(out.selected, now)) {
             // Gothic invests mana internally. Keep the prepared cast valid
             // even if the visible mana counter reaches zero mid-charge.
@@ -688,26 +1052,27 @@ namespace {
         }
         if (out.cast && gAiming && gManaPrepared &&
             gCooldown.ReadyByTime(out.selected, now)) {
-            if (CastAtCenteredNpc(out.selected)) {
-                gCooldown.MarkPreparedCast(out.selected, now);
-                gManaPrepared = false;
-                ShowSlotAvailability(player->GetAttribute(NPC_ATR_MANA), now);
-            }
+            CastAtCenteredNpc(out.selected);
         }
     }
 } // anonymous namespace
 
 // Standard Union DLL exports, called by engine event hooks in template.
+cexport const char* ParryHotter_BuildId() {
+    return "PH_BUILD_013_TEN_SLOTS_PROJECTILE_INPUT_CAST_ANIM";
+}
 cexport void Game_Entry() {}
 cexport void Game_Init() {
+    ParryControls::Reset();
+    ParryCasting::Forget();
     gTelemetry.Reset();
     gDiagnosticDirty = true;
     SetUnionPresence(true);
-    gController.Reset();
+    gController.ResetAfterInterruption();
     gCooldown.Reset();
-    gImpactTag.Reset();
 }
 cexport void Game_Exit() {
+    ParryControls::Disable();
     ResetSelectedSpellForScript();
     SetUnionPresence(false);
     gCamera.Restore(zCAICamera::current);
@@ -719,6 +1084,7 @@ cexport void Game_Loop() { GameTick(); }
 cexport void Game_PostLoop() {}
 cexport void Game_MenuLoop() {}
 cexport void Game_SaveBegin() {
+    ParryControls::Disable();
     // Exit casting mode before the game records its save. Both mouse
     // buttons must be released before re-arming on return.
     gController.Step({});
@@ -734,6 +1100,7 @@ cexport void Game_SaveEnd() {
     SetUnionPresence(true);
 }
 cexport void Game_LoadBegin_NewGame() {
+    ParryControls::Disable();
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
     ResetSelectedSpellForScript();
     if (gAiming) LowerWand();
@@ -741,12 +1108,14 @@ cexport void Game_LoadBegin_NewGame() {
     RemoveHud();
 }
 cexport void Game_LoadEnd_NewGame() {
+    ParryControls::Forget();
     ResetSelectedSpellForScript();
     SetUnionPresence(true);
-    gController.Reset();
+    gController.ResetAfterInterruption();
     gCooldown.Reset();
 }
 cexport void Game_LoadBegin_SaveGame() {
+    ParryControls::Disable();
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
     ResetSelectedSpellForScript();
     if (gAiming) LowerWand();
@@ -754,12 +1123,14 @@ cexport void Game_LoadBegin_SaveGame() {
     RemoveHud();
 }
 cexport void Game_LoadEnd_SaveGame() {
+    ParryControls::Forget();
     ResetSelectedSpellForScript();
     SetUnionPresence(true);
-    gController.Reset();
+    gController.ResetAfterInterruption();
     gCooldown.Reset();
 }
 cexport void Game_LoadBegin_ChangeLevel() {
+    ParryControls::Disable();
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
     ResetSelectedSpellForScript();
     if (gAiming) LowerWand();
@@ -767,14 +1138,16 @@ cexport void Game_LoadBegin_ChangeLevel() {
     RemoveHud();
 }
 cexport void Game_LoadEnd_ChangeLevel() {
+    ParryControls::Forget();
     ResetSelectedSpellForScript();
     SetUnionPresence(true);
-    gController.Reset();
+    gController.ResetAfterInterruption();
     gCooldown.Reset();
 }
 cexport void Game_LoadBegin_Trigger() {}
 cexport void Game_LoadEnd_Trigger() {}
 cexport void Game_Pause() {
+    ParryControls::Disable();
     // The game loop may stop during pause and never call GameTick's
     // !gameplay branch. Cancel pending input here, too.
     gController.Step({});
@@ -785,5 +1158,8 @@ cexport void Game_Pause() {
 }
 cexport void Game_Unpause() {}
 cexport void Game_DefineExternals() {}
-cexport void Game_ApplyOptions() {}
+cexport void Game_ApplyOptions() {
+    if (gAiming) LowerWand();
+    RemoveHud(); // Recalculate pixel-square HUD geometry after a resize.
+}
 #endif

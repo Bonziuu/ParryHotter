@@ -8,6 +8,8 @@
 // Parry Hotter slots on impact whenever the Union plugin is present.
 VAR INT PH_SELECTED_SPELL;
 VAR INT PH_UNION_LOADED; // 1 only while the native HUD plugin owns casting
+CONST INT PH_SPELL_COUNT = 6;
+CONST INT PH_SLOT_COUNT = 10; // Six implemented spells plus four empty HUD slots
 
 
 FUNC INT PH_IsSelectedSpell(VAR INT slot)
@@ -130,7 +132,7 @@ INSTANCE PH_Rune_Avada(C_Item)
 FUNC VOID PH_OnExpelliarmusHit()
 {
     VAR C_ITEM heldWeapon;
-    if (Npc_IsPlayer(other))
+    if (PH_IsSelectedSpell(4))
     {
         if (!Npc_IsDead(self))
         {
@@ -149,7 +151,7 @@ FUNC VOID PH_OnExpelliarmusHit()
 // Non-human targets retain normal IceCube behavior.
 FUNC VOID PH_OnLevicorpusHit()
 {
-    if (Npc_IsPlayer(other))
+    if (PH_IsSelectedSpell(2))
     {
         if (!Npc_IsDead(self) && C_NpcIsHuman(self))
         {
@@ -202,7 +204,7 @@ FUNC VOID PH_OnBumbardoHit()
 // Using animations already shipped with Gothic 1; no extra files needed.
 FUNC VOID PH_OnRictusempraHit()
 {
-    if (Npc_IsPlayer(other))
+    if (PH_IsSelectedSpell(3))
     {
         if (!Npc_IsDead(self))
         {
@@ -225,7 +227,7 @@ FUNC VOID ZS_PH_Rictusempra()
 
 FUNC INT ZS_PH_Rictusempra_Loop()
 {
-    if (Npc_GetStateTime(self) >= 4)
+    if (Npc_IsDead(self) || (Npc_GetStateTime(self) >= 4))
     {
         return LOOP_END;
     };
@@ -235,7 +237,10 @@ FUNC INT ZS_PH_Rictusempra_Loop()
 
 FUNC VOID ZS_PH_Rictusempra_End()
 {
-    AI_ContinueRoutine(self);
+    if (!Npc_IsDead(self))
+    {
+        AI_ContinueRoutine(self);
+    };
 };
 
 // A simple custom AI state for the comic death.
@@ -276,7 +281,7 @@ FUNC VOID ZS_PH_AvadaDeath_End()
 // a truly independent spell implementation is needed to guarantee timing.
 FUNC VOID PH_OnAvadaHit()
 {
-    if (Npc_IsPlayer(other))
+    if (PH_IsSelectedSpell(6))
     {
         if (!Npc_IsDead(self))
         {

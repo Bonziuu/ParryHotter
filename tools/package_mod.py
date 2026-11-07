@@ -16,8 +16,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 from tools.generate_hud_textures import generate as generate_hud_textures
-from tools.download_hud import HudDownloadError, fetch_verified_hud
+from tools.download_hud import HudDownloadError, fetch_verified_hud, validate_hud_binary
 from tools.wand_asset import prepare_wand, WandError
+from tools.spell_catalog import REQUIRED_COMPILED_SYMBOLS, REQUIRED_TEXTURES
+from tools.file_transaction import FileTransaction
+from tools.casting_assets import CASTING_MDS, validate_optional_animation_assets
+from tools.install import PatchError
 
 
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -70,14 +74,79 @@ def validate_compiled(game: Path) -> tuple[Path, Path]:
     # ZenGin and independent Daedalus compilers normalize symbol case.
     # Search case-insensitively to avoid rejecting correctly compiled DATs.
     if (b"flipendo" not in raw.lower() or
-            b"ph_rune_flipendo" not in raw.lower() or
-            b"ph_selected_spell" not in raw.lower() or
-            b"ph_union_loaded" not in raw.lower()):
+            any(symbol not in raw.lower() for symbol in REQUIRED_COMPILED_SYMBOLS)):
         raise PackagingError(
-             "Gothic.dat nie zawiera pelnych zaklec i mostka HUD Parry Hotter. "
+             "Gothic.dat nie zawiera aktualnych szesciu zaklec i dziesieciu slotow HUD Parry Hotter. "
             "Ponownie skompiluj skrypty przez GothicStarter_mod."
         )
     return compiled, subtitle
+
+
+def release_profile(game: Path) -> tuple[Path, bytes]:
+    """Validate the DEV profile before any generated assets or release changes."""
+    dev = game / "System" / "ParryHotter.ini"
+    if not dev.is_file():
+        raise PackagingError("Brak System/ParryHotter.ini")
+    raw = dev.read_bytes()
+    text = raw.decode("latin-1").replace("\r\n", "\n").replace("\r", "\n")
+    vdf = r"(?im)^[ \t]*vdf[ \t]*=.*$"
+    if len(re.findall(vdf, text)) != 1:
+        raise PackagingError("ParryHotter.ini must define exactly one VDF=")
+    text = re.sub(vdf, "vdf=ParryHotter.mod", text)
+    text = re.sub(r"(?im)^[ \t]*force_parameters[ \t]*=.*$", "force_parameters=", text)
+    text = re.sub(r"(?im)^[ \t]*title[ \t]*=.*$", "title=Parry Hotter (PLAY)", text)
+    if b"\r\n" in raw:
+        text = text.replace("\n", "\r\n")
+    return game / "System" / "ParryHotter-PLAY.ini", text.encode("latin-1")
+
+
+def private_harry_assets(game: Path, dat: Path) -> list[tuple[Path, Path]]:
+    """Preflight the optional appearance/animation sources before generating files."""
+    content = game / "_work" / "Data" / "Scripts" / "Content"
+    armor = content / "Items" / "ParryHarryArmor.d"
+    if not armor.is_file():
+        return []
+    compiled = dat.read_bytes().lower()
+    if b"ph_armor_harry" not in compiled:
+        raise PackagingError(
+            "Harry armor script was installed but Gothic.dat is stale. "
+            "Use Reparse Scripts again."
+        )
+    hero = content / "Story" / "NPC" / "PC_Hero.d"
+    if not hero.is_file():
+        raise PackagingError(f"Harry visual installed but hero source is missing: {hero}")
+    if dat.stat().st_mtime + 2 < max(armor.stat().st_mtime, hero.stat().st_mtime):
+        raise PackagingError("Converted Harry visual is newer than Gothic.dat: Reparse Scripts")
+    anims = game / "_work" / "Data" / "Anims"
+    try:
+        casting = validate_optional_animation_assets(anims)
+    except PatchError as exc:
+        raise PackagingError(f"Invalid Harry casting animation sources: {exc}") from exc
+    if casting:
+        if CASTING_MDS.lower().encode("ascii") not in compiled:
+            raise PackagingError(
+                "Harry casting overlay was installed but Gothic.dat is stale. "
+                "Use Reparse Scripts again."
+            )
+    elif re.search(
+            rb'Mdl_ApplyOverlayMds\s*\(\s*self\s*,\s*"PH_HARRY_CAST\.MDS"\s*\)',
+            hero.read_bytes(), re.IGNORECASE):
+        raise PackagingError("PC_Hero references PH_HARRY_CAST.MDS but its animation sources are missing")
+    assets = [
+        (anims / "PH_HARRY.ASC", Path("_work/Data/Anims/PH_HARRY.ASC")),
+        (anims / "HUMANS.MDS", Path("_work/Data/Anims/HUMANS.MDS")),
+    ]
+    assets.extend((source, Path("_work/Data/Anims") / source.name) for source in casting)
+    for index in range(4):
+        name = f"PH_HARRY_TEX{index}.TGA"
+        assets.append((game / "_work" / "Data" / "Textures" / name,
+                       Path("_work/Data/Textures") / name))
+    for source, _ in assets:
+        if not source.is_file():
+            raise PackagingError(f"Harry visual installed but asset is missing: {source}")
+        if source.stat().st_size == 0:
+            raise PackagingError(f"Empty Harry visual asset: {source}")
+    return assets
 
 
 def build_mod(
@@ -87,20 +156,26 @@ def build_mod(
     game = game.expanduser().resolve()
     if not (game / "System").is_dir():
         raise PackagingError(f"Nie znaleziono Gothic/System: {game}")
+    ini, profile = release_profile(game)
+    outfile = game / "Data" / "ModVDF" / "ParryHotter.mod"
+    with FileTransaction(game) as files:
+        files.check_file(ini)
+        files.check_file(outfile)
     compiler = (vdfs_executable or locate_vdfs(game)).expanduser().resolve()
     if not compiler.is_file():
         raise PackagingError(f"Nie ma GothicVDFS.exe: {compiler}")
     dat, subtitles = validate_compiled(game)
+    harry_assets = private_harry_assets(game, dat)
     # The mesh is embedded in the user's locally built .mod. Offline
     # procedural fallback ensures the plugin never references a missing wand.
     try:
         prepare_wand(game, allow_download=False)
     except (WandError, OSError, ValueError) as exc:
         raise PackagingError(f"Failed to prepare Gothic 3DS wand: {exc}") from exc
-    # 6 slot icons, 6 target glyphs, active frame and center dot.
+    # Six spell icons/glyphs, active frame, center dot and shared empty slot.
     generated_sprites = generate_hud_textures(game / "_work" / "Data" / "Textures")
-    if len(generated_sprites) != 14:
-        raise PackagingError("Nie wygenerowano wszystkich 14 elementow HUD")
+    if {p.name for p in generated_sprites} != set(REQUIRED_TEXTURES):
+        raise PackagingError("Nie wygenerowano wszystkich 15 elementow HUD")
 
     with tempfile.TemporaryDirectory(prefix="ph_vdfs_") as temp:
         stage = Path(temp)
@@ -120,9 +195,14 @@ def build_mod(
         # Never install an untested native plugin globally in Gothic/System.
         dll = hud_dll
         if dll is None:
-            dll = fetch_verified_hud(stage / "hud_download" / "ParryHotterHUD-G1.dll")
+            local = Path(__file__).resolve().parents[1] / ".parryhotter" / "build" / "ParryHotterHUD-G1.dll"
+            dll = local if local.is_file() else fetch_verified_hud(stage / "hud_download" / "ParryHotterHUD-G1.dll")
         if not dll.is_file() or dll.read_bytes()[:2] != b"MZ":
             raise PackagingError("Nieprawidlowy experimentalny DLL HUD Union")
+        try:
+            validate_hud_binary(dll.read_bytes())
+        except HudDownloadError as exc:
+            raise PackagingError(str(exc)) from exc
         plugin_rel = Path("System/Autorun/ParryHotterHUD-G1.dll")
         plugin_dst = stage / plugin_rel
         plugin_dst.parent.mkdir(parents=True, exist_ok=True)
@@ -151,38 +231,13 @@ def build_mod(
 
         # Bundle the privately converted Harry mesh ONLY for the user's
         # locally generated .mod. Never upload game/model assets to GitHub.
-        armor_src = game / "_work" / "Data" / "Scripts" / "Content" / "Items" / "ParryHarryArmor.d"
-        if armor_src.is_file():
-            if b"ph_armor_harry" not in dat.read_bytes().lower():
-                raise PackagingError(
-                    "Harry armor script was installed but Gothic.dat is stale. "
-                    "Use Reparse Scripts again."
-                )
-            hero_src = game / "_work" / "Data" / "Scripts" / "Content" / "Story" / "NPC" / "PC_Hero.d"
-            if dat.stat().st_mtime + 2 < max(armor_src.stat().st_mtime, hero_src.stat().st_mtime):
-                raise PackagingError("Converted Harry visual is newer than Gothic.dat: Reparse Scripts")
-            private_assets = [
-                (game / "_work" / "Data" / "Anims" / "PH_HARRY.ASC",
-                 Path("_work/Data/Anims/PH_HARRY.ASC")),
-                (game / "_work" / "Data" / "Anims" / "HUMANS.MDS",
-                 Path("_work/Data/Anims/HUMANS.MDS")),
-            ]
-            for i in range(4):
-                name = f"PH_HARRY_TEX{i}.TGA"
-                private_assets.append((
-                    game / "_work" / "Data" / "Textures" / name,
-                    Path("_work/Data/Textures") / name
-                ))
-            for source, rel in private_assets:
-                if not source.is_file():
-                    raise PackagingError(f"Harry visual installed but asset is missing: {source}")
-                if source.stat().st_size == 0:
-                    raise PackagingError(f"Empty Harry visual asset: {source}")
+        if harry_assets:
+            for source, rel in harry_assets:
                 destination = stage / rel
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, destination)
                 manifest.append(rel.as_posix())
-            print("Added privately converted Harry outfit, HUMANS.MDS and four textures.")
+            print("Added privately converted Harry outfit, model scripts, textures and available casting sources.")
 
         vdf_script = stage / "build.vm"
         vdf_script.write_text(
@@ -210,25 +265,11 @@ def build_mod(
                 "GothicVDFS nie utworzyl poprawnego .mod.\n"
                 + (proc.stderr or proc.stdout)[-1400:]
             )
-        destination = game / "Data" / "ModVDF"
-        destination.mkdir(parents=True, exist_ok=True)
-        outfile = destination / "ParryHotter.mod"
-        shutil.copy2(result, outfile)
-
-    # Create a separate *release* profile. Keep the development one unchanged
-    # for new experiments and source reparsing.
-    ini = game / "System" / "ParryHotter-PLAY.ini"
-    dev = game / "System" / "ParryHotter.ini"
-    if not dev.is_file():
-        raise PackagingError("Brak System/ParryHotter.ini")
-    text = dev.read_text(encoding="latin-1")
-    if re.search(r"(?im)^vdf=.*$", text):
-        text = re.sub(r"(?im)^vdf=.*$", "vdf=ParryHotter.mod", text)
-    else:
-        raise PackagingError("ParryHotter.ini does not define VDF=")
-    text = re.sub(r"(?im)^force_parameters=.*$", "force_parameters=", text)
-    text = re.sub(r"(?im)^title=.*$", "title=Parry Hotter (PLAY)", text)
-    ini.write_text(text, encoding="latin-1")
+        # Commit the archive and matching PLAY profile together. A failed
+        # replacement restores both previous artifacts and their timestamps.
+        with FileTransaction(game) as files:
+            files.copy_file(result, outfile)
+            files.write_bytes(ini, profile)
     return outfile
 
 

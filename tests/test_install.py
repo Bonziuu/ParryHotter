@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from tools.install import PatchError, install
+from tools.spell_catalog import RUNE_NAMES
 
 
 class InstallTests(unittest.TestCase):
@@ -47,9 +48,15 @@ class InstallTests(unittest.TestCase):
         changed = install(self.content)
         self.assertEqual(len(changed), 4)
         self.assertTrue((self.content / "Magic" / "ParryHotter.d").is_file())
+        deployed_script = (self.content / "Magic" / "ParryHotter.d").read_text("latin-1")
+        self.assertIn("CONST INT PH_SPELL_COUNT = 6;", deployed_script)
+        self.assertIn("CONST INT PH_SLOT_COUNT = 10;", deployed_script)
         hero = (self.content / "Story" / "NPC" / "PC_Hero.d").read_text(encoding="latin-1")
         self.assertIn('name = "Parry Hotter"', hero)
         self.assertEqual(hero.count("CreateInvItem(self, PH_Rune_"), 6)
+        for name in RUNE_NAMES:
+            self.assertIn(f"INSTANCE PH_Rune_{name}(C_Item)", deployed_script)
+            self.assertIn(f"CreateInvItem(self, PH_Rune_{name});", hero)
         self.assertIn('INSTANCE PC_Hero_L2', hero)
         hooks = (self.content / "Magic" / "B_AssessMagic.d").read_text(encoding="latin-1")
         self.assertIn("PH_OnAvadaHit();", hooks)
@@ -100,6 +107,43 @@ class InstallTests(unittest.TestCase):
         fixed = hero_path.read_text(encoding="latin-1")
         self.assertEqual(fixed.count('Mdl_ApplyOverlayMds(self, "Humans_Mage.mds");'), 1)
         self.assertEqual(install(self.content), [])
+
+    def test_restores_missing_original_runes_without_losing_custom_items(self):
+        install(self.content)
+        hero_path = self.content / "Story" / "NPC" / "PC_Hero.d"
+        hero = hero_path.read_text("latin-1")
+        for name in RUNE_NAMES[4:]:
+            hero = hero.replace(f"    CreateInvItem(self, PH_Rune_{name});\n", "")
+        hero = hero.replace("// PARRY_HOTTER_HERO_END", "CreateInvItem(self, CustomPotion);\n    // PARRY_HOTTER_HERO_END")
+        hero_path.write_text(hero, encoding="latin-1")
+        self.assertEqual([p.name for p in install(self.content)], ["PC_Hero.d"])
+        updated = hero_path.read_text("latin-1")
+        for name in RUNE_NAMES:
+            self.assertEqual(updated.count(f"CreateInvItem(self, PH_Rune_{name});"), 1)
+        self.assertIn("CreateInvItem(self, CustomPotion);", updated)
+        for name in ("Incendio", "Glacius", "Stupefy", "Depulso"):
+            self.assertNotIn(f"PH_Rune_{name}", updated)
+        self.assertEqual(install(self.content), [])
+
+    def test_incomplete_upgrade_marker_is_rejected_before_writes(self):
+        install(self.content)
+        hero_path = self.content / "Story" / "NPC" / "PC_Hero.d"
+        hero = hero_path.read_text("latin-1").replace("// PARRY_HOTTER_HERO_END", "// missing end")
+        hero_path.write_text(hero, encoding="latin-1")
+        with self.assertRaises(PatchError):
+            install(self.content)
+        self.assertEqual(hero_path.read_text("latin-1"), hero)
+
+    def test_reinstall_keeps_unmanaged_inventory_items(self):
+        install(self.content)
+        hero_path = self.content / "Story" / "NPC" / "PC_Hero.d"
+        hero = hero_path.read_text("latin-1").replace(
+            "// PARRY_HOTTER_HERO_END",
+            "CreateInvItem(self, LocalCustomRune);\n    // PARRY_HOTTER_HERO_END",
+        )
+        hero_path.write_text(hero, encoding="latin-1")
+        self.assertEqual(install(self.content), [])
+        self.assertEqual(hero_path.read_text("latin-1"), hero)
 
     def test_upgrades_legacy_hooks_without_double_hit(self):
         path = self.content / "Magic" / "B_AssessMagic.d"

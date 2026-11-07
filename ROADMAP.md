@@ -1,47 +1,35 @@
-# Parry Hotter — stan prac (Gothic I, prototyp DEV 0.12)
+# Parry Hotter — DEV 0.13
 
-## Zrobione i przetestowane automatycznie
+## Zaimplementowane w kodzie
 
-- [x] Sześć run (Flipendo, Levicorpus, Rictusempra, Expelliarmus, Bumbardo Maximus, Avada Kedavra) i podstawowe skrypty Daedalus.
-- [x] Polski zestaw skryptów i OU.bin, automatyczne kopie zapasowe.
-- [x] HUD Union: 6 slotów, symbole celu, środkowy celownik, maszyna stanów PPM + LPM.
-- [x] Kompilacja testowej DLL Union dla Gothic I, 14 autorskich ikon TGA, testy gestów i kamery.
-- [x] Prototyp kamery zza ramienia, sprawdzanie celu ze środka kamery, powrót do poprzednich ustawień.
-- [x] Poprawiona konfiguracja myszy bez wymuszania globalnego Gothic2_Control=1.
-- [x] Rictusempra i Avada Kedavra: zastępcze animacje Gothica i własne stany NPC.
-- [x] Pobieranie/przygotowanie zasobów Harry'ego prywatnie, automatyczne wykrywanie ZIP w Downloads.
-- [x] Przygotowanie tekstur HP2 PNG -> TGA przez Blendera (kod, wymaga testu na prawdziwych plikach).
-- [x] Tymczasowa szata Maga Ognia zamiast stroju więźnia, bez importu zewnętrznych modeli.
-- [x] Bezpieczna integracja **gotowego** lokalnego ASC jako strój Harry'ego: skrypty, MDS, tekstury, pakowanie tylko lokalnie.
-- [x] Testy Python instalatora, źródeł PL, model assets, pakowania oraz testy kompilatora GDC.
+- 10 stałych kwadratowych pól, etykiety 1–9 i 0; 6 istniejących czarów, 4 puste pola bez rzutu.
+- PPM przygotowuje czar, nowy LPM rzuca; znak widoczny podczas celowania, animowany przy rzutowanej pozycji NPC.
+- Ruch względem kamery, szybkie osiem kierunków, sterowanie w powietrzu i bufor skoku; natywne kolizje i grawitacja.
+- Swobodny obrót myszą przez parametry kamery silnika; F11 przywraca standardowy ruch/kamerę.
+- Potwierdzanie rzutu przez natywny oCSpell::Cast; odnowienie dopiero po sukcesie, obsługa opóźnienia animacji.
+- Rejestr wielu pocisków według rzeczywistej tożsamości efektu i ofiary; ograniczony czas życia i pojedynczy impuls na rzut.
+- Eksport ASC przez zainstalowany KrxImpExp, normalizacja wag, dopasowanie głowy/peleryny, walidacja geometrii i tekstur.
+- Usunięcie oryginalnej głowy PC_Hero podczas instalacji; kod zachowania wyglądu po zmianie pancerza.
+- Własne klipy przygotowania/rzutu różdżką, 25 kości, 30 FPS; opcjonalna nakładka PC_Hero i sześć natywnych uchwytów z przywracaniem.
+- Pakowanie odrzuca starą DLL i niepełny DAT; przypięty SDK i lokalny skrypt kompilacji Windows.
 
-## Niedokończone: konieczne do grywalnej wersji
+## Zweryfikowane poza grą
 
-- [ ] Import prawdziwego `skharrymesh.fbx`, szkieletu `HUM_BODY_NAKED0.ASC`, retarget w Blenderze, **eksport PH_HARRY.ASC** i test peleryny. Repo nie zawiera jeszcze gotowego modelu Gothica.
-- [x] Model 3DS/TGA różdżki z oryginalnego lokalnego OBJ HP2 lub fallback generowany automatycznie, dołączony do lokalnego `.mod` (testy i kompilacja DLL).
-- [ ] **Sprawdzić w grze** mocowanie różdżki do `ZS_RIGHTHAND` podczas PPM, pozycję i animacje; własne animacje ładowania niegotowe.
-- [ ] Weryfikacja w rzeczywistym Gothic I i jego parserze oraz pakowanie przez GothicVDFS.exe użytkownika.
-- [ ] Rzeczywiste efekty 6 zaklęć: lewitacja głową w dół, fizyka wybuchu/obrót w powietrzu, taniec, pełne rozbrojenie, niestandardowa animacja śmierci bez naruszania bazowego balansu.
-- [x] Wstępne koszty many i osobne cooldowny 6 zaklęć, z przygaszaniem niedostępnych slotów i testami C++ (test w rzeczywistej grze wciąż potrzebny).
-- [x] Prototyp Levicorpus: krótki, niedający obrażeń stan NPC, zamiast domyślnego 9-sekundowego zamrożenia (jeszcze bez uniesienia i obrotu 3D).
-- [x] Zdarzenia trafień rozpoznają wybrany slot przez `PH_SELECTED_SPELL` (Union → Daedalus), a starsze haki są bezpiecznie aktualizowane bez dublowania.
-- [x] Bumbardo: dodatkowy, krótki wstrząs człowieka przy trafieniu ponad natywny Stormfist (nie jest to jeszcze wyrzut z ragdollem).
-- [x] Eksperymentalne impulsy po prawdziwym trafieniu: mały wybicie Levicorpus i mocniejsze wybicie Bumbardo, obliczenia z limitami, testy przeszkód i zgodności z aktywnym `zCRigidBody`.
-- [x] `PH_UNION_LOADED` chroni zwykłe czary Gothica przed uruchomieniem specjalnych reakcji w profilu PLAY; builder wymaga nowego symbolu.
-- [x] Eksperymentalny panel diagnostyczny pod **F10**: liczniki trafień, impulsów, lądowań oraz przyczyn braku fizyki, domyślnie ukryty (skompilowany i przetestowany automatycznie).
-- [x] Promień ze środka kamery rozpoznaje teraz NPC bez wymogu zgodności z dodatkowym focus Gothica; `SetFocusVob` synchronizuje cel w chwili rzucania, F10 opisuje przyczynę odmowy namierzenia. Test w rzeczywistym silniku nadal wymagany.
-- [x] Zablokowano przypadkowe rzuty przy równoczesnym PPM+LPM i powrocie z menu, pauzy lub zapisu; testy kolejności przycisków i natywna kompilacja Union.
-- [ ] Zweryfikować w prawdziwej grze mapowanie klawiszy 1–6 i zachowanie natywnego focus NPC przy rzucaniu zaklęć.
-- [ ] **Test w silniku** czy NPC mają `physicsEnabled` / `GetRigidBody()` podczas trafienia. Panel F10 powinien ujawnić, gdzie blokuje się wyrzut; przy braku aktywnej fizyki dodatkowy impuls pozostaje pominięty.
-- [x] Ograniczona czasowo obserwacja NPC po wybiciu, wykrywanie lądowania oraz jednorazowa próba animacji Bumbardo, z testami odbić i timeoutów (nadal bez testu w grze).
-- [x] Rozpoznane trafienie jest diagnozowane najwyżej raz na rzut; przy otwarciu menu, cutscence lub zmianie świata obserwacja lotu jest przerywana i nie wykonuje animacji lądowania.
-- [x] Zapis gry nie utrwala przypadkowo `PH_UNION_LOADED=1` dla profilu DEV bez pluginu.
-- [ ] Peleryna, lewitacja głową w dół, pełne obroty NPC, pełny ragdoll i rzeczywiste testy animacji po lądowaniu.
-- [x] Koniec globalnego osłabienia BreathOfDeath; stare kopie wartości służą do przywrócenia oryginału.
-- [ ] Dźwięki, błyski, pozostałe animacje i usunięcie konfliktów 1–6 z bazowym interfejsem gry.
-- [ ] Docelowe sterowanie swobodną kamerą z HP2 (obrót postaci i celowanie bez przeskoków).
-- [ ] Jeden instalator wykonujący **również** bezobsługową kompilację ASC i .mod po legalnym pozyskaniu lokalnych źródeł.
+- Testy Python i przenośne testy C++17: python -m tools.check.
+- Kompilacja kontrolna prawdziwych Unified-PL + ParryHotter przez przypięty GDC na Linux; wariant stroju również.
+- Syntetyczny FBX → wagi szkieletu → rzeczywisty eksport Kerrax ASC → staging i walidacja w Blenderze 4.3.2.
+- Symulacja adaptera ruchu sprawdza kolejność wywołań i zarządzanie wejściem; nie potwierdza ABI silnika.
+- Rzeczywiste klipy różdżki: eksport i ponowny import Kerrax, zamknięcie pętli, zgodność szkieletu, brak ruchu korzenia; podgląd na prawdziwym modelu.
 
-**Bezpieczeństwo:** nie publikujemy plików skopiowanych z komercyjnych gier. Gotowy użytkowy model powstaje wyłącznie lokalnie; skrypty i oryginalne ikony HUD są autorskie.
+## Wymagane przed grywalnym wydaniem
 
-**Najbliższy rzeczywisty blocker:** nie mamy dostępnego, wyeksportowanego Gothic-compatible `PH_HARRY.ASC` ani testu animacji w samej grze. Zielone testy GitHub Actions nie dowodzą działania w silniku ZenGin.
+- [x] Rzeczywisty Harry HP2 PC przekonwertowany na 25 kości prawdziwego szkieletu Gothica; ASC i cztery TGA zwalidowane. Próby głowy/ręki/kolana oraz instalacji źródeł przeszły. Referencja ModKitu jest pobierana z przypiętego źródła i weryfikowana SHA-256.
+- Sprawdzenie deformacji twarzy, włosów, szaty, peleryny i dłoni na tym modelu.
+- Kompilacja aktualnej DLL przez MSVC/Win32; skonfigurowane CI nie jest dowodem jej wykonania.
+- Parser ZenGin, kompilacja modeli/tekstur, GothicVDFS i uruchomienie końcowego .mod.
+- Próby kamery, kolizji, skoków/sterowania w powietrzu, rozmów i przejść między światami.
+- Próby rzeczywistych efektów każdego czaru, many, trafień kilku pocisków i zmiany celu.
+- Próba własnych animacji różdżki w Gothicu, pełny zestaw ruchów HP, odwrócone zawieszenie Levicorpus i pełny ragdoll/obroty Bumbardo.
+- Dalsze strojenie szybkości, czułości, wysokości skoku i efektów na podstawie gry.
+
+Lista prób i polecenia: [docs/DEV-013.md](docs/DEV-013.md).

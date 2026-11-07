@@ -1,0 +1,111 @@
+// Adapter contract simulation. The lightweight engine doubles below test
+// input ownership and native-call sequencing; they do not validate the SDK ABI.
+#include <array>
+#include <map>
+#include <cmath>
+#define KEY_W 17
+#define KEY_A 30
+#define KEY_S 31
+#define KEY_D 32
+#define KEY_UP 200
+#define KEY_DOWN 208
+#define KEY_LEFT 203
+#define KEY_RIGHT 205
+#define KEY_SPACE 57
+#define KEY_F11 87
+#define KEY_1 2
+#define KEY_2 3
+#define KEY_3 4
+#define KEY_4 5
+#define KEY_5 6
+#define KEY_6 7
+#define KEY_7 8
+#define KEY_8 9
+#define KEY_9 10
+#define KEY_0 11
+#define GAME_UP 3
+#define GAME_DOWN 4
+#define GAME_LEFT 1
+#define GAME_RIGHT 2
+#define GAME_ACTION 5
+#define GAME_STRAFELEFT 18
+#define GAME_STRAFERIGHT 19
+#define GAME_SMOVE 11
+#define GAME_SMOVE2 12
+namespace Gothic_I_Classic {
+struct zVEC3 { float a[3]; zVEC3(float x=0,float y=0,float z=0):a{x,y,z}{} float& operator[](int n){return a[n];} float operator[](int n)const{return a[n];} };
+struct zCVob { zVEC3 at{0,0,1},position; int begin=0,end=0; float biggestStep=0; zVEC3 GetAtVectorWorld(){return at;} void BeginMovement(){++begin;} void EndMovement(){++end;} void MoveWorld(float x,float y,float z){position[0]+=x;position[1]+=y;position[2]+=z;biggestStep=std::max(biggestStep,std::hypot(x,z));} void SetHeadingYWorld(zVEC3 p){at=p;} void RotateWorldY(float d){float angle=std::atan2(at[0],at[2])+d*0.01745329252f;at=zVEC3(std::sin(angle),0,std::cos(angle));} };
+struct zCModel { zVEC3 aniTransScale{1,1,1}; };
+struct zCRigidBody { zVEC3 v; void SetVelocity(zVEC3 p){v=p;} };
+struct oCNpc: zCVob { bool physicsEnabled=true; zCRigidBody bodyPhysics; zCRigidBody* GetRigidBody(){return &bodyPhysics;} bool openinventory=false,dead=false,human=true,movLock=false; int body=0; zCModel mdl; bool IsDead(){return dead;} bool IsHuman(){return human;} bool IsMovLock(){return movLock;} int GetBodyState(){return body;} zCModel* GetModel(){return &mdl;} };
+struct oCGame { bool inLoadSaveGame=false,inLevelChange=false,paused=false; bool IsOnPause(){return paused;} };
+struct zCInput_Win32 { std::map<int,int> keys,toggled,states; bool left=false,right=false; int KeyPressed(int n){return keys[n];} int KeyToggled(int n){int r=toggled[n];toggled[n]=0;return r;} int GetMouseButtonPressedRight(){return right;} int GetMouseButtonPressedLeft(){return left;} void GetMousePos(float&x,float&y,float&z){x=0;y=0;z=0;} int SetState(unsigned short n,int v){states[n]=v;return v;} };
+struct zCAICamera { static zCAICamera* current; zCVob* camVob; bool inCutsceneMode=false,underWater=false; void* dialogCam=nullptr; float rotOffsetX=12,rotOffsetY=15; };
+zCAICamera* zCAICamera::current=nullptr;
+struct oCInformationManager { bool done=true; static oCInformationManager& GetInformationManager(){static oCInformationManager m;return m;} int HasFinished(){return done;} };
+struct zCAIPlayer { enum State{zMV_STATE_STAND,zMV_STATE_FLY,zMV_STATE_SWIM,zMV_STATE_DIVE}; };
+struct oCAIHuman { zVEC3 velocity{100,200,300}; oCNpc* npc; int state=zCAIPlayer::zMV_STATE_STAND; float aboveFloor=0; bool canjump=true,standing=true; int jumps=0,runCalls=0,standCalls=0; bool IsInWater(){return false;} int CanJump(int){return canjump;} int JumpForward(){++jumps;canjump=false;standing=false;return 1;} bool IsInCastAni(){return false;} void PC_GoForward(){++runCalls;} bool IsStanding(){return standing;} void _Stand(){++standCalls;standing=true;} };
+struct zCTimer { float frameTimeFloat=16.66667f; };
+inline zCTimer timer;
+inline zCTimer* ztimer=&timer;
+inline oCNpc* player=nullptr;
+inline oCGame* ogame=nullptr;
+inline zCInput_Win32* zinput=nullptr;
+constexpr int BS_MOD_TRANSFORMED=4096,BS_MOD_CONTROLLED=2048,BS_MOD_CONTROLLING=8192,BS_ONLY_STATE=127,BS_STAND=0,BS_WALK=1,BS_RUN=3,BS_SPRINT=4,BS_SWIM=5,BS_JUMP=8,BS_CLIMB=9,BS_FALL=10,BS_UNCONSCIOUS=22,BS_CASTING=28;
+}
+#include "../Plugin/PlayerControls.hpp"
+#include <cassert>
+#include <iostream>
+using namespace Gothic_I_Classic;
+int main(){
+ oCNpc pc;oCGame game;zCInput_Win32 controls;zCVob camvob;zCAICamera cam;cam.camVob=&camvob;
+ player=&pc;ogame=&game;zinput=&controls;zCAICamera::current=&cam;oCAIHuman ai;ai.npc=&pc;
+ controls.keys[KEY_W]=1;controls.keys[KEY_D]=1;controls.toggled[KEY_0]=1;
+ ParryControls::CaptureInput(&controls);assert(ParryControls::OwnsInput());assert(ParryControls::GetInput().slotPressed==10);assert(controls.states[GAME_UP]==0);
+ ParryControls::UpdateCamera(&cam);
+ for(int i=0;i<60;++i){ParryControls::BeforeHumanAI(&ai);assert(pc.mdl.aniTransScale[0]==0);ParryControls::AfterHumanAI(&ai);assert(pc.mdl.aniTransScale[0]==1);}
+ assert(ai.velocity[0]==0 && ai.velocity[1]==200 && ai.velocity[2]==0);
+ assert(pc.position[0]>200&&pc.position[2]>200);assert(pc.position[1]==0);assert(pc.biggestStep<=10.001f);assert(pc.begin==pc.end);
+ const int runCallsBeforeJump=ai.runCalls;
+ controls.keys[KEY_SPACE]=1;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.jumps==1);
+ assert(ai.runCalls==runCallsBeforeJump); // A native jump must not be followed by a run command.
+ ParryControls::Disable();assert(cam.rotOffsetX==12&&cam.rotOffsetY==15);
+ ai.canjump=true;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.jumps==1);
+ controls.keys[KEY_SPACE]=0;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
+ controls.keys[KEY_SPACE]=1;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.jumps==2);
+ controls.keys[KEY_W]=controls.keys[KEY_D]=controls.keys[KEY_SPACE]=0;
+ ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
+ const int standCallsBeforeJump=ai.standCalls;
+ ai.canjump=true;controls.keys[KEY_SPACE]=1;
+ ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
+ assert(ai.jumps==3&&ai.standCalls==standCallsBeforeJump&&!ai.standing);
+ pc.openinventory=true;ParryControls::CaptureInput(&controls);assert(!ParryControls::OwnsInput());
+ pc.openinventory=false;controls.toggled[KEY_F11]=1;ParryControls::CaptureInput(&controls);assert(!ParryControls::OwnsInput());
+ assert(ParryControls::ContextAvailable()); // F11 does not disable the spell safety context.
+ controls.right=true;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
+ assert(!ParryControls::OwnsInput()&&controls.states[GAME_ACTION]==0); // Native action cannot also handle a spell click with F11 off.
+ pc.body=BS_UNCONSCIOUS;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
+ assert(!ParryControls::ContextAvailable()&&controls.states[GAME_ACTION]==1);
+ pc.body=BS_STAND;controls.right=false;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
+ assert(controls.states[GAME_ACTION]==1); // Ordinary action input remains native without RMB.
+ controls.toggled[KEY_F11]=1;ParryControls::CaptureInput(&controls);assert(ParryControls::OwnsInput());
+ controls.right=true;
+ for(const int state:{BS_MOD_TRANSFORMED,BS_MOD_CONTROLLED,BS_MOD_CONTROLLING,BS_SWIM,BS_CLIMB,BS_UNCONSCIOUS}){
+   pc.body=state;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
+   assert(!ParryControls::ContextAvailable()&&!ParryControls::OwnsInput());
+   assert(controls.states[GAME_ACTION]==1); // Unsafe states keep native input with F11 on, too.
+ }
+ controls.right=false;
+ pc.body=BS_CASTING;assert(ParryControls::ContextAvailable());
+ pc.movLock=true;assert(!ParryControls::ContextAvailable());pc.movLock=false;
+ pc.dead=true;assert(!ParryControls::ContextAvailable());pc.dead=false;
+ pc.human=false;assert(!ParryControls::ContextAvailable());pc.human=true;
+ auto& information=oCInformationManager::GetInformationManager();
+ information.done=false;assert(!ParryControls::ContextAvailable());information.done=true;
+ cam.dialogCam=&pc;assert(!ParryControls::ContextAvailable());cam.dialogCam=nullptr;
+ cam.underWater=true;assert(!ParryControls::ContextAvailable());cam.underWater=false;
+ game.paused=true;assert(!ParryControls::ContextAvailable());game.paused=false;
+ assert(ParryControls::ContextAvailable());
+ ParryControls::Forget();assert(!ParryControls::OwnsInput());
+ std::cout<<"Gothic adapter simulation: movement, jump sequencing, context safety and F11 fallback OK\n";
+}

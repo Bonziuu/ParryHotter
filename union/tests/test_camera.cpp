@@ -44,5 +44,13 @@ int main() {
     assert(close(newWorld.bestRange, 280.0f));
     assert(!aiming.IsActive());
 
+    // Equal elapsed time gives the same framing at 30 and 120 fps.
+    ParryHotter::AimCamera lowFps, highFps;
+    GothicCameraStub low, high;
+    for (int i = 0; i < 3; ++i) lowFps.Update(&low, true, 1.0f / 30);
+    for (int i = 0; i < 12; ++i) highFps.Update(&high, true, 1.0f / 120);
+    assert(close(low.bestRange, high.bestRange));
+    assert(close(low.focusOffsetX, high.focusOffsetX));
+
     std::cout << "Parry Hotter camera restore/aim transition: OK\n";
 }

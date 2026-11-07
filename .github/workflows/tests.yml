@@ -14,10 +14,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Test local patcher and installer
-        run: python -m unittest discover -s tests -v
-      - name: Check Blender visual preparation script syntax
-        run: python -m py_compile tools/blender_visual_first.py tools/blender_prepare.py
+      - name: Run Python, portable C++ and generated asset checks
+        if: runner.os == 'Linux'
+        run: python -m tools.check
+      - name: Run Windows Python and generated asset checks
+        if: runner.os == 'Windows'
+        run: python -m tools.check --python-only
 
   unified-pl-smoke:
     runs-on: windows-latest
@@ -30,7 +32,11 @@ jobs:
         run: python -m tools.verify_download
 
   daedalus-compile:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4

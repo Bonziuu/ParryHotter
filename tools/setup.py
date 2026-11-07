@@ -185,8 +185,24 @@ def main() -> int:
     parser.add_argument("--game", type=Path, default=DEFAULT_GAME)
     parser.add_argument("--zip", dest="zip_path", type=Path, help="Offline test with Unified-PL ZIP")
     parser.add_argument("--model-zip", type=Path, help="Previously downloaded private HP2 Harry model ZIP")
+    parser.add_argument("--model-bundle", type=Path, help="Validated PH_HARRY.ASC and TGA bundle; skips Blender/source download")
+    parser.add_argument("--offline-reference", action="store_true", help="Do not download a missing Gothic reference body")
     parser.add_argument("--run", action="store_true", help="Open GothicStarter_mod.exe after setup")
     args = parser.parse_args()
+
+    # Check explicit/embedded assets before replacing Content or the DEV profile.
+    bundled_model = args.model_bundle
+    if bundled_model is None:
+        included_bundle = REPO_ROOT / "ParryHotter_Harry_Gothic.zip"
+        if included_bundle.is_file():
+            bundled_model = included_bundle
+    if bundled_model is not None:
+        from tools.import_harry_bundle import validate_harry_bundle
+        try:
+            validate_harry_bundle(bundled_model)
+        except (PatchError, OSError, zipfile.BadZipFile) as exc:
+            print(f"BLAD PACZKI MODELU: {exc}", file=sys.stderr)
+            return 1
 
     try:
         starter = install_bundle(args.game, zip_path=args.zip_path)
@@ -222,32 +238,43 @@ def main() -> int:
     except OSError as exc:
         print(f"Nie mozna zmienic ustawien myszy: {exc}")
 
-    # Never publish or place raw copyrighted FBX/texture files inside game data.
-    # The game needs an ASC model with a compatible human skeleton.
-    print("Sprawdzam prywatny model Harry'ego (HP2 PC)...")
-    try:
-        prepared = prepare_model(args.game, args.model_zip)
-        print(f"Przygotowano zrodla modelu do konwersji: {prepared}")
-        prepare_blender_project(prepared)
-        prepare_visual_first(prepared)
-    except (ModelAssetError, OSError, zipfile.BadZipFile) as exc:
-        print(f"Nie udalo sie przygotowac modelu: {exc}")
-        print(f"Opcjonalnie pobierz oryginalny ZIP tutaj: {MODEL_PAGE}")
-        print("Uruchom ponownie: py -3 tools/model_asset.py --zip SCIEZKA_DO_ZIP")
+    visual_installed = False
+    if bundled_model is not None:
+        from tools.import_harry_bundle import import_harry_bundle
+        try:
+            import_harry_bundle(args.game, bundled_model)
+            visual_installed = True
+            print("Zainstalowano zrodla gotowego modelu Harry'ego z lokalnej paczki.")
+        except (PatchError, OSError, zipfile.BadZipFile) as exc:
+            print(f"BLAD PACZKI MODELU: {exc}", file=sys.stderr)
+            return 1
+    else:
+        # Never publish or place raw copyrighted FBX/texture files inside game data.
+        # The game needs an ASC model with a compatible human skeleton.
+        print("Sprawdzam prywatny model Harry'ego (HP2 PC)...")
+        try:
+            prepared = prepare_model(args.game, args.model_zip)
+            print(f"Przygotowano zrodla modelu do konwersji: {prepared}")
+            prepare_blender_project(prepared)
+            prepare_visual_first(prepared, fetch_reference=not args.offline_reference)
+        except (ModelAssetError, OSError, zipfile.BadZipFile) as exc:
+            print(f"Nie udalo sie przygotowac modelu: {exc}")
+            print(f"Opcjonalnie pobierz oryginalny ZIP tutaj: {MODEL_PAGE}")
+            print("Uruchom ponownie: py -3 tools/model_asset.py --zip SCIEZKA_DO_ZIP")
 
-    # If an ASC was exported by Blender/KrxImpExp into the original-model
-    # folder, normalize material paths and stage it without further user input.
-    try:
-        if stage_export(args.game):
-            print("Znaleziono eksportowany model Gothic i przygotowano tekstury.")
-    except (PatchError, OSError) as exc:
-        print(f"Gotowy ASC nie przeszedl kontroli: {exc}")
-        print("Nie wprowadzam nieprawidlowego modelu do Gothic.")
+        # If an ASC was exported by Blender/KrxImpExp into the original-model
+        # folder, normalize material paths and stage it without further user input.
+        try:
+            if stage_export(args.game):
+                print("Znaleziono eksportowany model Gothic i przygotowano tekstury.")
+        except (PatchError, OSError) as exc:
+            print(f"Gotowy ASC nie przeszedl kontroli: {exc}")
+            print("Nie wprowadzam nieprawidlowego modelu do Gothic.")
 
     # The costume is enabled only if a valid local Gothic ASC export exists.
     # Missing or incomplete original HP2 resources never break the base mod.
     try:
-        if install_visual(args.game):
+        if visual_installed or install_visual(args.game):
             print("Wyglad Harry'ego z lokalnego ASC zostal zarejestrowany.")
         else:
             print("Brak gotowego PH_HARRY.ASC: pozostaje tymczasowa szata maga Gothic.")
@@ -256,7 +283,7 @@ def main() -> int:
         print("Zachowano podstawowe skrypty i tymczasowa szate Gothic.")
 
     print("W GothicStarter_mod wybierz 'Parry Hotter (DEV)' i reparse scripts.")
-    print("Rozpocznij NOWA GRE. Model Harry'ego i fizyka ragdoll NIE sa jeszcze dodane.")
+    print("Rozpocznij NOWA GRE i sprawdz model oraz czary w silniku; pelny ragdoll pozostaje niedokonczony.")
     if args.run:
         import subprocess
         try:

@@ -1,5 +1,43 @@
 # Parry Hotter — Gothic 1 🪄
 
+Pełne ustalenia projektu, stan wykonanych prac i kolejność dalszych etapów:
+[prompt przekazania do nowego czatu](PROMPT_DO_NOWEGO_CZATU.md).
+
+
+**Wersja 0.13 DEV — 10 pól (6 czarów + 4 puste), animowane znaki celu, ruch i kamera inspirowane HP1/HP2 PC.**
+
+Kod zawiera teraz sterowanie myszą i ruch względem kamery: **WASD / strzałki**, szybki bieg we wszystkich kierunkach, **Spacja** do skoku, zmiana kierunku w powietrzu. **PPM** przygotowuje wybrany czar; osobne kliknięcie **LPM** podczas trzymania PPM próbuje rzucić go na żywego NPC pod celownikiem. Znak wybranego czaru jest rzutowany na pozycję NPC, delikatnie unosi się i pulsuje. Domyślne prędkości to 650 cm/s biegu i 450 cm/s celowania; wymagają dostrojenia w grze.
+
+Pasek ma stale widoczne kwadraty **1–9, 0**. Dostępne pozostają czary **1–6**. Pola **7, 8, 9, 0** są puste i nie rzucają zaklęć. **F10** przełącza diagnostykę, **F11** przełącza nowy ruch/kamerę i standardowy ruch Gothica. Nowy kontroler oddaje sterowanie podczas rozmów, ekwipunku, pływania, wspinania, obrażeń i scenek. Natywne reguły Gothica nadal decydują, czy można rozpocząć dany skok.
+
+Konwersja modelu korzysta z rzeczywistego importera/eksportera KrxImpExp, mapuje oryginalne wagi według anatomii na szkielet Gothica, dopasowuje głowę i rozkłada pelerynę na kilka kości tułowia. Instalator usuwa starą głowę Gothica wyłącznie u głównego bohatera. Kod wtyczki ponawia wizual Harry’ego po zmianie pancerza, zachowując właściwości przedmiotu. **To wymaga rzeczywistego Harry FBX/tekstur oraz referencji szkieletu Gothica; tych plików nie ma w repozytorium.**
+
+**Stan weryfikacji:** rzeczywisty Harry został dopasowany do 25 kości Gothica i wyeksportowany do ASC z czterema teksturami. Sprawdzono pozy głowy, ręki i kolana oraz instalację na rzeczywistych źródłach ModKitu/Unified-PL. Dodano własne animacje przygotowania i rzutu różdżką: dwa klipy ASC i nakładkę tylko dla bohatera. Przeszły walidację i ponowny import do Blendera. Natywnej DLL 0.13 i rozgrywki nie uruchomiono w tym środowisku. Nie jest to jeszcze gotowe wydanie `.mod`. Zaklęcia nadal wykorzystują efekty Gothica; pełny zestaw ruchów HP, ragdoll i odwrócona lewitacja pozostają do wykonania i testów.
+
+Sprawdzenie kodu: `python -m tools.check`. Kompilacja kontrolna prawdziwych polskich skryptów: `python -m tools.verify_daedalus` (wynik kontrolny nie nadaje się do instalowania w grze).
+
+Na Windows z Visual Studio 2022 C++/Win32 zbuduj aktualną wtyczkę poleceniem `powershell -ExecutionPolicy Bypass -File tools/build_union.ps1`, następnie wykonaj **Reparse Scripts** w GothicStarter_mod i `ZBUDUJ_MOD_PO_REPARSE.bat`. Lokalna DLL z `.parryhotter/build` ma pierwszeństwo przed pobieraniem. Pakowanie odrzuca starą DLL `hud-dev`, jeżeli nie zawiera zgodnego identyfikatora wersji. Skrypt kompilacji Windows jest przygotowany, ale nie został wykonany w tej sesji.
+
+Prywatna paczka `ParryHotter_Harry_Gothic.zip` zawiera gotowy źródłowy model ASC i cztery TGA. Umieszczona obok `INSTALUJ_PARRY_HOTTER.bat` jest wykrywana automatycznie: nie wymaga ponownego pobierania modelu ani Blendera. Można też wywołać `python -m tools.import_harry_bundle --game "SCIEZKA_DO_GOTHIC" --bundle "ParryHotter_Harry_Gothic.zip"`. To instalacja źródeł; parser gry, aktualna DLL i test w silniku są nadal konieczne.
+
+Aktualna paczka zawiera też `PH_HARRY_CAST.MDS`, `PH_HARRY_CHARGE.ASC` i
+`PH_HARRY_RELEASE.ASC`. Instalator przyjmuje ten zestaw w całości i nakłada go
+wyłącznie na `PC_Hero`. Nowa gra jest wymagana do uruchomienia jego konstruktora.
+Wtyczka wybiera nowe animacje tylko po znalezieniu wszystkich sześciu uchwytów;
+przy brakujących zasobach zachowuje animacje natywne. DLL musi mieć aktualny
+identyfikator z końcówką `_CAST_ANIM`.
+
+Paczka modelu jest sprawdzana przed wymianą skryptów. Błędy zapisu podczas importu
+modelu przywracają wcześniejsze źródła, aktywne zasoby, prywatny cache i kopie
+zapasowe. Pakowanie przywraca poprzednią parę `.mod`/profil PLAY po błędzie zapisu.
+
+Szczegółowe wymagania i próby w silniku: [docs/DEV-013.md](docs/DEV-013.md).
+
+---
+
+Poniżej historia wcześniejszych wersji; opis 0.13 powyżej określa bieżący zakres i ograniczenia.
+
+
 **Wersja 0.12 DEV — HUD Union, kamera zza ramienia, poprawione namierzanie i bezpieczniejsze sterowanie PPM → LPM.**
 
 To nadal **prototyp źródłowy**, a nie kompletnie sprawdzony mod `.mod`. Nie ma jeszcze modelu Harry'ego z `Komnaty Tajemnic` ani fizyki ragdoll. Sterowanie PPM + LPM i HUD mają skompilowaną wtyczkę Union, ale nie zostały jeszcze potwierdzone w uruchomionym Gothic 1.

@@ -1,5 +1,9 @@
 # Parry Hotter / Gothic I Union — HUD i czarowanie
 
+
+**Aktualny kod: 0.13 DEV.** Dziesięć pól 1–9,0 (sześć czarów, cztery puste), znak celu rzutowany na NPC i animowany, kontroler ruchu względem swobodnej kamery. Nowy adapter i DLL wymagają kompilacji MSVC/Win32 oraz testu ZenGin. Sterowanie: WASD/strzałki, Spacja, PPM→LPM; F11 przywraca standardowy ruch/kamerę. Szczegóły budowania i ograniczenia: [DEV-013](../docs/DEV-013.md). Poniższe sekcje opisują historię prototypu; dawne ograniczenie do sześciu pól i nieruchomego znaku nie dotyczy aktualnego kodu.
+
+
 Status: eksperymentalna wtyczka Union. Skompilowanie C++ to nie to samo, co sprawdzenie działania w prawdziwej grze.
 
 ## Interfejs inspirowany grami Harry Potter PC

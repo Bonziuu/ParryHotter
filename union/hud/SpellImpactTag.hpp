@@ -3,6 +3,7 @@
 // Pure C++17: no Union/Zengin headers required.
 #pragma once
 #include <chrono>
+#include "SpellHudState.hpp"
 
 namespace ParryHotter {
 
@@ -10,11 +11,11 @@ class SpellImpactTag final {
 public:
     using Clock = std::chrono::steady_clock;
     using TimePoint = Clock::time_point;
-    static constexpr int Count = 6;
+    static constexpr int Count = kSpellCount;
     static constexpr auto Duration = std::chrono::seconds(7);
 
     void MarkCast(int slot, TimePoint now) {
-        if (slot < 0 || slot >= Count) return;
+        if (slot < 0 || slot >= Count || !kSpellAvailable[slot]) return;
         slot_ = slot + 1;
         expires_ = now + Duration;
     }

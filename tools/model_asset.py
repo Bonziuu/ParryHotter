@@ -7,6 +7,7 @@ valid Gothic animated ASC. The original model needs rigging and ASC export.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -33,10 +34,20 @@ EXPECTED = {
     "skharrytex2.png",
     "skharrytex3.png",
 }
+OPTIONAL_MODEL_FILES = {"skharrymesh.mtl"}
 
 
 class ModelAssetError(RuntimeError):
     pass
+
+
+def blender_environment() -> dict[str, str]:
+    """Use the optional cloud toolchain without overriding a user's Blender setup."""
+    result = os.environ.copy()
+    cloud_scripts = ROOT.parent / ".parryhotter-cloud" / "blender-scripts"
+    if (cloud_scripts / "addons" / "KrxImpExp").is_dir():
+        result.setdefault("BLENDER_USER_SCRIPTS", str(cloud_scripts))
+    return result
 
 
 def download_asset(target: Path) -> None:
@@ -134,7 +145,7 @@ def prepare_model(game_dir: Path, model_archive: Path | None = None) -> Path:
         for item in archive.infolist():
             # Only known filenames; no archive paths are trusted.
             name = item.filename.replace("\\", "/").split("/")[-1].lower()
-            if name in EXPECTED:
+            if name in EXPECTED | OPTIONAL_MODEL_FILES:
                 if item.file_size > MAX_FILE_SIZE:
                     raise ModelAssetError(f"Plik jest za duzy: {name}")
                 if name in members:
@@ -147,8 +158,19 @@ def prepare_model(game_dir: Path, model_archive: Path | None = None) -> Path:
                 + ", ".join(sorted(missing))
             )
         for name, member in members.items():
-            with archive.open(member, "r") as infile, (private_dir / name).open("wb") as outfile:
-                shutil.copyfileobj(infile, outfile)
+            target = private_dir / name
+            data = archive.read(member)
+            # Keep mtimes stable for unchanged source files, so re-running
+            # setup does not invalidate a manually reviewed ASC export.
+            if target.is_file() and target.read_bytes() == data:
+                continue
+            if target.is_file():
+                backup = target.with_name(target.name + ".parryhotter-original")
+                if not backup.exists():
+                    backup.write_bytes(target.read_bytes())
+            temporary = target.with_name(target.name + ".parryhotter.tmp")
+            temporary.write_bytes(data)
+            temporary.replace(target)
     print(f"Przygotowano model i tekstury HP2 w: {private_dir}")
     print("Model FBX jest tylko materialem do konwersji w Blenderze.")
     print("NIE zmieniono wygladu bohatera w Gothic 1: potrzebny jest retarget i ASC.")
@@ -176,6 +198,7 @@ def prepare_blender_project(private_dir: Path) -> Path | None:
     command = [
         blender_path,
         "--background",
+        "--python-exit-code", "1",
         "--python",
         str(ROOT / "tools" / "blender_prepare.py"),
         "--",
@@ -183,7 +206,8 @@ def prepare_blender_project(private_dir: Path) -> Path | None:
         str(output),
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=240)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=240,
+                                env=blender_environment())
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"Blender nie przygotowal sceny: {exc}")
         return None
@@ -195,21 +219,41 @@ def prepare_blender_project(private_dir: Path) -> Path | None:
     return output
 
 
-def prepare_visual_first(private_dir: Path) -> Path | None:
-    """Visual-only attempt once a Gothic human skeleton .blend is available.
+def prepare_visual_first(private_dir: Path, *, fetch_reference: bool = False) -> Path | None:
+    """Retarget once a real Gothic human skeleton/reference mesh is available.
 
     The original Harry appearance and robe are kept. No HP2 combat animations
-    or collision are transferred. Output is a PREVIEW, not compiled Gothic ASC.
+    or collision are transferred. An installed exporter can produce source ASC;
+    the returned review scene and ASC still require compilation in Gothic.
     """
     game_dir = private_dir.parent.parent
     gothic_reference = game_dir / "ParryHotter-private" / "GothicHuman.blend"
     source = private_dir / "skharrymesh.fbx"
     if not gothic_reference.is_file():
-        print(
-            "Brak GothicHuman.blend (szkielet z HUM_BODY_NAKED0.ASC). "
-            "Harry FBX zachowany; nie podmieniam wizualu w Gothic."
-        )
-        return None
+        anims = game_dir / "_work" / "Data" / "Anims"
+        if anims.is_dir():
+            candidates = [p for p in anims.rglob("*")
+                          if p.is_file() and p.name.upper() == "HUM_BODY_NAKED0.ASC"]
+            if len(candidates) == 1:
+                gothic_reference = candidates[0]
+        if not gothic_reference.is_file() and fetch_reference:
+            from tools.gothic_reference import ensure_gothic_reference, GothicReferenceError
+            try:
+                gothic_reference = ensure_gothic_reference(game_dir)
+            except GothicReferenceError as exc:
+                report = {"status": "reference_download_failed", "error": str(exc),
+                          "installed_in_game": False}
+                (private_dir / "Harry_conversion_status.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+                print(str(exc))
+                return None
+        if not gothic_reference.is_file():
+            report = {"status": "missing_gothic_reference",
+                      "required": str(game_dir / "ParryHotter-private" / "GothicHuman.blend"),
+                      "alternative": "HUM_BODY_NAKED0.ASC under _work/Data/Anims plus installed KrxImpExp importer",
+                      "installed_in_game": False}
+            (private_dir / "Harry_conversion_status.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+            print("Brak GothicHuman.blend lub HUM_BODY_NAKED0.ASC. Harry FBX zachowany; nie podmieniam wizualu w Gothic.")
+            return None
     if not source.is_file():
         return None
 
@@ -226,11 +270,12 @@ def prepare_visual_first(private_dir: Path) -> Path | None:
     target = private_dir / "ParryHotter_VISUAL_FIRST.blend"
     try:
         command = [
-            blender_path, "--background", "--python",
+            blender_path, "--background", "--python-exit-code", "1", "--python",
             str(ROOT / "tools" / "blender_visual_first.py"), "--",
             str(source), str(gothic_reference), str(target),
         ]
-        result = subprocess.run(command, capture_output=True, text=True, timeout=240)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=240,
+                                env=blender_environment())
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"Nie udalo sie uruchomic konwersji wygladu: {exc}")
         return None
@@ -239,7 +284,16 @@ def prepare_visual_first(private_dir: Path) -> Path | None:
         print((result.stderr or result.stdout)[-1200:])
         return None
     print(f"Przygotowano wizual Harry + peleryna: {target}")
-    print("To podglad do sprawdzenia w Blenderze, NIE gotowy model do Gothic 1.")
+    report_path = target.with_suffix(".json")
+    report = json.loads(report_path.read_text("utf-8")) if report_path.is_file() else {}
+    status = {"status": report.get("export", {}).get("status", "scene_prepared"),
+              "reference": str(gothic_reference), "scene": str(target),
+              "asc": report.get("export", {}).get("asc"), "installed_in_game": False}
+    (private_dir / "Harry_conversion_status.json").write_text(json.dumps(status, indent=2), encoding="utf-8")
+    if report.get("export", {}).get("status") == "exported_pending_engine_validation":
+        print("Wyeksportowano ASC przez KrxImpExp. Wymaga walidacji, kompilacji zasobow i testu w Gothic 1.")
+    else:
+        print("Scena jest gotowa do przegladu, ale brak zgodnego eksportera KrxImpExp ASC; sprawdz raport JSON.")
     return target
 
 
@@ -247,11 +301,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Import private Harry HP2 model archive")
     parser.add_argument("--game", type=Path, default=DEFAULT_GAME)
     parser.add_argument("--zip", type=Path, help="ZIP downloaded manually from The Models Resource")
+    parser.add_argument("--offline-reference", action="store_true", help="Use an existing Gothic reference; do not fetch the pinned MDK body")
     args = parser.parse_args()
     try:
         private_dir = prepare_model(args.game, args.zip)
         prepare_blender_project(private_dir)
-        prepare_visual_first(private_dir)
+        prepare_visual_first(private_dir, fetch_reference=not args.offline_reference)
     except (ModelAssetError, OSError, zipfile.BadZipFile) as exc:
         print("Nie przygotowano modelu: " + str(exc), file=sys.stderr)
         print("Strona modelu: " + MODEL_PAGE, file=sys.stderr)

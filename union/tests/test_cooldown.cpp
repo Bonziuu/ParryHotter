@@ -9,14 +9,14 @@ int main() {
     SpellCooldown cd;
     using Clock = SpellCooldown::Clock;
     const auto t0 = Clock::time_point{} + seconds(600);
-    assert(SpellCooldown::Count == 6);
+    assert(SpellCooldown::Count == 10);
     assert(SpellCooldown::ManaCosts[0] == 3);
     assert(SpellCooldown::ManaCosts[2] == 10);
     assert(SpellCooldown::ManaCosts[5] == 5);
 
     assert(!cd.Ready(-1, 200, t0));
-    assert(!cd.Ready(6, 200, t0));
-    assert(!cd.Record(7, 200, t0));
+    assert(!cd.Ready(10, 200, t0));
+    assert(!cd.Record(11, 200, t0));
     assert(!cd.Ready(2, 9, t0));
     assert(cd.Ready(2, 10, t0));
     assert(!cd.Record(2, 9, t0));
@@ -48,9 +48,23 @@ int main() {
     // Never count a negative time gap as ready; time can only go forward.
     assert(!cd.Ready(5, 200, t0 - seconds(1)));
     cd.Reset();
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < SpellCooldown::Count; ++i) {
+        if (!kSpellAvailable[i]) {
+            assert(!cd.ReadyByTime(i, t0));
+            assert(!cd.Ready(i, 200, t0));
+            assert(!cd.Record(i, 200, t0));
+            assert(!cd.MarkPreparedCast(i, t0));
+            assert(cd.RemainingMs(i, t0) == 0);
+            continue;
+        }
         assert(cd.Ready(i, 200, t0));
         assert(cd.RemainingMs(i, t0) == 0);
+        const int mana = SpellCooldown::ManaCosts[i];
+        const auto duration = milliseconds(SpellCooldown::CooldownMs[i]);
+        assert(!cd.Ready(i, mana - 1, t0));
+        assert(cd.Record(i, mana, t0));
+        assert(!cd.Ready(i, mana, t0 + duration - milliseconds(1)));
+        assert(cd.Ready(i, mana, t0 + duration));
     }
     std::cout << "Parry Hotter mana/cooldown logic: OK\n";
 }

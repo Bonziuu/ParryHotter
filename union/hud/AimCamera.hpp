@@ -1,5 +1,5 @@
-// Camera assistance for Parry Hotter - pure C++17, no Union dependencies.
-// The game retains control of actual mouse rotation, collision and dialogue cameras.
+// Shoulder framing, separate from FreeCamera's mouse orbit controller.
+// Keep the native camera's collision and dialogue modes.
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -11,7 +11,7 @@ public:
     // Gothic 1 coordinates use centimeters. Never change the near/far
     // collision clipping planes or overwrite scripted/cutscene camera modes.
     template <typename Camera>
-    void Update(Camera* camera, bool aiming) {
+    void Update(Camera* camera, bool aiming, float deltaSeconds = 1.0f / 60.0f) {
         if (!camera) {
             Forget();
             return;
@@ -34,8 +34,11 @@ public:
         const float goalShoulder = aiming
             ? savedShoulder_ + 38.0f : savedShoulder_;
 
-        camera->bestRange += (goalRange - camera->bestRange) * 0.24f;
-        camera->focusOffsetX += (goalShoulder - camera->focusOffsetX) * 0.24f;
+        const float dt = std::isfinite(deltaSeconds)
+            ? std::clamp(deltaSeconds, 0.0f, 0.1f) : 0.0f;
+        const float blend = 1.0f - std::exp(-16.4662f * dt);
+        camera->bestRange += (goalRange - camera->bestRange) * blend;
+        camera->focusOffsetX += (goalShoulder - camera->focusOffsetX) * blend;
 
         if (!aiming &&
             std::fabs(camera->bestRange - savedRange_) < 0.35f &&

@@ -1,10 +1,11 @@
-// Parry Hotter: six independent spell cooldowns and mana requirements.
+// Parry Hotter: independent spell cooldowns and mana requirements.
 // Pure C++17 logic, testable without Gothic I, Union, or Windows.
 // This does not deduct mana: native Gothic spellbook is responsible.
 #pragma once
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include "SpellHudState.hpp"
 
 namespace ParryHotter {
 
@@ -12,12 +13,14 @@ class SpellCooldown final {
 public:
     using Clock = std::chrono::steady_clock;
     using TimePoint = Clock::time_point;
-    static constexpr int Count = 6;
-    static constexpr std::array<int, Count> ManaCosts{{3, 3, 10, 5, 8, 5}};
-    static constexpr std::array<int, Count> CooldownMs{{600, 3600, 2500, 1900, 2800, 5200}};
+    static constexpr int Count = kSpellCount;
+    static constexpr std::array<int, Count> ManaCosts{{3, 3, 10, 5, 8, 5, 0, 0, 0, 0}};
+    static constexpr std::array<int, Count> CooldownMs{{
+        600, 3600, 2500, 1900, 2800, 5200, 0, 0, 0, 0
+    }};
 
     bool ReadyByTime(int slot, TimePoint now) const {
-        if (slot < 0 || slot >= Count) return false;
+        if (slot < 0 || slot >= Count || !kSpellAvailable[slot]) return false;
         if (!used_[slot]) return true;
         return now - last_[slot] >= std::chrono::milliseconds(CooldownMs[slot]);
     }

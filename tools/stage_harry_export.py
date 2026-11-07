@@ -42,6 +42,9 @@ def stage_export(game: Path) -> bool:
     source_asc = source_dir / OUTFIT
     if not source_asc.is_file():
         return False
+    for prerequisite in (source_dir / "skharrymesh.fbx", source_dir / "ParryHotter_VISUAL_FIRST.blend"):
+        if prerequisite.is_file() and source_asc.stat().st_mtime + 2 < prerequisite.stat().st_mtime:
+            raise PatchError(f"PH_HARRY.ASC is older than {prerequisite.name}; export the reviewed scene again")
     dst_dir = game / "ParryHotter-private" / "HP2-Harry-converted"
     with tempfile.TemporaryDirectory(prefix="ph_asc_", dir=source_dir) as tmpdir:
         stage = Path(tmpdir)

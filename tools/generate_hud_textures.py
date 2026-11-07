@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+if __package__:
+    from .spell_catalog import SPRITE_NAMES
+else:
+    from spell_catalog import SPRITE_NAMES
 
 N = 64
 COLORS = (
@@ -18,9 +22,7 @@ COLORS = (
     (255, 122, 45),   # Bumbardo: fire burst
     (85, 247, 142),   # Avada: emerald lightning
 )
-NAMES = (
-    "FLIPENDO", "LEVICORPUS", "RICTUSEMPRA", "EXPELLIARMUS", "BUMBARDO", "AVADA"
-)
+NAMES = SPRITE_NAMES
 
 
 def blank():
@@ -84,7 +86,9 @@ def glyph_path(i):
     if i == 4:  # blast star burst
         return [(32, 10), (36, 25), (51, 17), (41, 32), (55, 39), (38, 38),
                 (32, 55), (26, 38), (11, 46), (22, 31), (12, 21), (28, 25), (32, 10)]
-    return [(42, 10), (23, 30), (33, 30), (21, 51), (46, 25), (34, 25), (42, 10)]
+    if i == 5:
+        return [(42, 10), (23, 30), (33, 30), (21, 51), (46, 25), (34, 25), (42, 10)]
+    raise ValueError(f"Unknown spell glyph: {i}")
 
 
 def glyph(img, i, target=False):
@@ -163,6 +167,11 @@ def generate(dest: Path):
     files.append(dest / "PH_SELECTED.TGA")
     write_tga(dest / "PH_RETICLE.TGA", crosshair())
     files.append(dest / "PH_RETICLE.TGA")
+    # Slots 7, 8, 9 and 0 intentionally have no spell assigned.
+    empty = blank()
+    box_border(empty)
+    write_tga(dest / "PH_EMPTY.TGA", empty)
+    files.append(dest / "PH_EMPTY.TGA")
     return files
 
 
