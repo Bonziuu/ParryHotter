@@ -17,7 +17,7 @@ class PackagingTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.game = Path(self.tmp.name) / "Gothic"
+        self.game = Path(self.tmp.name).resolve() / "Gothic"
         self.system = self.game / "System"
         self.system.mkdir(parents=True)
         self.src = self.game / "_work" / "Data" / "Scripts" / "Content" / "Magic" / "ParryHotter.d"

@@ -27,6 +27,8 @@ class CharacterImportTests(unittest.TestCase):
             self.assertEqual(local_texture(source, r"..\Desktop\skharryTex0.png"), texture)
             self.assertIsNone(local_texture(source, r"C:\missing.png"))
             (source / "skharryTex0.png").write_bytes(b"ambiguous")
+            if len(list(source.iterdir())) == 1:
+                return  # Case-insensitive filesystem (NTFS): no second file can exist.
             with self.assertRaisesRegex(RuntimeError, "Ambiguous"):
                 local_texture(source, "skharrytex0.png")
 
@@ -85,7 +87,7 @@ class CharacterImportTests(unittest.TestCase):
                 return [1.0] * 64
 
         with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary)
+            source = Path(temporary).resolve()
             target = source / "PH_HARRY_TEX0.TGA"
             target.write_bytes(b"test texture")
             image = LazyImage()

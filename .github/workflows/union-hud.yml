@@ -6,6 +6,8 @@ on:
       - 'tools/generate_hud_textures.py'
       - 'tools/spell_catalog.py'
       - 'tools/check.py'
+      - 'tools/build_union.ps1'
+      - 'tools/verify_dll.py'
       - '.github/workflows/union-hud.yml'
   pull_request:
     paths:
@@ -13,6 +15,8 @@ on:
       - 'tools/generate_hud_textures.py'
       - 'tools/spell_catalog.py'
       - 'tools/check.py'
+      - 'tools/build_union.ps1'
+      - 'tools/verify_dll.py'
       - '.github/workflows/union-hud.yml'
   workflow_dispatch:
 
@@ -36,45 +40,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: microsoft/setup-msbuild@v2
-      - name: Fetch pinned Gothic I Union SDK and stage all plugin headers
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build native G1 Release / Win32 DLL with the local build script
+        shell: pwsh
+        # Exactly the command documented for players; it pins the SDK commit,
+        # stages every header and .inl, and rejects a DLL without the marker.
+        run: powershell -ExecutionPolicy Bypass -File tools/build_union.ps1
+      - name: Verify PE32 i386 DLL, build marker and imported DLLs
         shell: pwsh
         run: |
-          $sdkCommit = '4ae1fc51bd962e72ed2a0b1d3da92084517db996'
-          git init sdk
-          if ($LASTEXITCODE -ne 0) { throw 'SDK init failed' }
-          git -C sdk remote add origin https://github.com/Gratt-5r2/UnionProject.git
-          git -C sdk fetch --depth 1 origin $sdkCommit
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned SDK fetch failed' }
-          git -C sdk checkout --detach FETCH_HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned SDK checkout failed' }
-          if ((git -C sdk rev-parse HEAD) -ne $sdkCommit) { throw 'SDK commit mismatch' }
-          Copy-Item 'union/Plugin/plugin.cpp' 'sdk/UnionProject/Plugin/plugin.cpp' -Force
-          Copy-Item 'union/hud/*.hpp' 'sdk/UnionProject/Plugin/' -Force
-          Copy-Item 'union/Plugin/*.hpp' 'sdk/UnionProject/Plugin/' -Force
-          Copy-Item 'union/userapi/*.inl' 'sdk/UnionProject/GothicAPI/Gothic_UserAPI/' -Force
-      - name: Build native G1 Release / Win32 DLL
-        shell: pwsh
-        env:
-          CL: /std:c++17
-        run: |
-          msbuild 'sdk/UnionProject/UnionProject.vcxproj' /m /p:Configuration="G1 Release" /p:Platform=Win32 /v:minimal
-          if ($LASTEXITCODE -ne 0) { throw 'Native G1 DLL build failed' }
-      - name: Show built DLL candidates
-        shell: pwsh
-        run: |
-          Get-ChildItem sdk -Filter '*.dll' -Recurse | ForEach-Object { Write-Host $_.FullName }
+          python -m tools.verify_dll .parryhotter/build/ParryHotterHUD-G1.dll
+          if ($LASTEXITCODE -ne 0) { throw 'Built DLL failed verification' }
+          $dumpbin = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio" -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'Hostx64\\x86' } | Select-Object -First 1
+          if ($dumpbin) { & $dumpbin.FullName /nologo /headers /dependents .parryhotter/build/ParryHotterHUD-G1.dll | Select-String 'machine|DLL|\.dll' }
       - name: Preserve DLL as a private test artifact (not a release)
         uses: actions/upload-artifact@v4
         with:
           name: ParryHotter-Union-G1-EXPERIMENTAL
-          path: sdk/UnionProject/G1 Release/UnionProject.dll
+          path: .parryhotter/build/ParryHotterHUD-G1.dll
           if-no-files-found: error
       - name: Prepare clearly labeled experimental G1 DLL
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path 'prerelease' -Force | Out-Null
-          Copy-Item 'sdk/UnionProject/G1 Release/UnionProject.dll' 'prerelease/ParryHotterHUD-G1.dll' -Force
+          Copy-Item '.parryhotter/build/ParryHotterHUD-G1.dll' 'prerelease/ParryHotterHUD-G1.dll' -Force
       - name: Publish experimental HUD DLL for one-click local test
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2

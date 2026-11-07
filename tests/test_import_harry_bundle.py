@@ -26,7 +26,7 @@ class ConvertedBundleTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.game = self.root / "Gothic"
         (self.game / "System").mkdir(parents=True)
         self.content = self.game / "_work" / "DATA" / "scripts" / "Content"

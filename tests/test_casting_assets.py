@@ -72,7 +72,7 @@ def write_casting_assets(directory: Path) -> None:
     mesh = triangle[triangle.index("*GEOMOBJECT"):]
     nodes = ''.join(_node(name, parent, index) + '}\n'
                     for index, (name, parent) in enumerate(_BONES))
-    (directory / "PH_HARRY.ASC").write_text(header + nodes + mesh, encoding="ascii")
+    (directory / "PH_HARRY.ASC").write_bytes((header + nodes + mesh).encode("ascii"))
     (directory / CASTING_MDS).write_bytes(canonical_casting_mds())
     (directory / CHARGE_ASC).write_bytes(_animation(43))
     (directory / RELEASE_ASC).write_bytes(_animation(26))
@@ -82,7 +82,7 @@ class CastingAssetTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         write_casting_assets(self.root)
 
     def replace(self, name: str, before: bytes, after: bytes, count: int = 1):
