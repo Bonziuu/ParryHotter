@@ -3,18 +3,18 @@ Kontynuuj rozwój projektu Parry Hotter do grywalnego, sprawdzonego moda Gothic 
 1. AKTUALNE ŹRÓDŁA I PLIKI
 
 Repozytorium: Bonziuu/ParryHotter. Aktualna gałąź przekazania: codex/dev013-handoff. Etap: DEV 0.13. Pobierz tę gałąź i przeczytaj niniejszy plik PROMPT_DO_NOWEGO_CZATU.md.
-Aktualny kod i ten prompt są opublikowane na gałęzi codex/dev013-handoff. Pobranie tej gałęzi przenosi źródła i testy. Oryginalny model, tekstury i prywatne projekty Blendera pozostają poza publicznym repozytorium. Sprawdź ich dostępność w środowisku. Jeśli są niedostępne, potrzebna jest prywatna paczka modelu lub oryginalny ZIP użytkownika i konwersja opisanymi narzędziami. W poprzednim środowisku istnieje również pełna paczka ParryHotter_DEV013_sources_and_model.zip, zawierająca kod oraz osadzony ParryHotter_Harry_Gothic.zip.
+Aktualny kod, ten prompt oraz przygotowana paczka ParryHotter_Harry_Gothic.zip są opublikowane na gałęzi codex/dev013-handoff. ZIP znajduje się w katalogu głównym repozytorium i zawiera rzeczywisty model, cztery tekstury, dwa klipy ASC, nakładkę MDS, projekty Blendera i raporty. Zwykłe pobranie gałęzi przenosi również te zasoby; Git LFS nie jest wymagany. Instrukcja dostępu, kontroli sumy i importu jest w docs/MODEL_DLA_CLAUDE_CODE.md. Instalator wykrywa paczkę automatycznie, więc nie trzeba prosić użytkownika o ponowny upload ani wykonywać konwersji od zera. Pełny starszy snapshot ParryHotter_DEV013_sources_and_model.zip pozostaje dodatkowo w poprzednim środowisku.
 
-W poprzednim czacie powstało wiele zmian i nowych plików. Zostały przygotowane do publikacji na gałęzi codex/dev013-handoff. Gałąź main może nadal zawierać starszy prototyp. Najpierw sprawdź git status, wybierz właściwą gałąź, porównaj źródła ze stanem nowego czatu i zachowaj istniejące zmiany oraz przygotowane środowisko.
+W poprzednim czacie powstało wiele zmian i nowych plików. Są opublikowane na gałęzi codex/dev013-handoff; późniejsze poprawki i potwierdzenie kompilacji DLL także znajdują się na tej gałęzi. Gałąź main może nadal zawierać starszy prototyp. Najpierw sprawdź git status, wybierz właściwą gałąź, porównaj źródła ze stanem nowego czatu i zachowaj istniejące zmiany oraz przygotowane środowisko.
 
-SHA-256 paczki źródeł:
+SHA-256 starszego archiwalnego snapshotu źródeł (aktualny kod pobieraj z gałęzi):
 8a8f2ad83e255fdcaa24a9338273baa7ee679425ba409be0c56676bf34c463c0
 SHA-256 osadzonej paczki modelu:
 f0378e38ee1935ac7b7f420c592e00d464e7cfc7d91db6c7124bdd14b65b72f9
 
 Dokumentem bieżącej wersji jest docs/DEV-013.md, następnie ROADMAP.md i początek README.md. Dalsze rozdziały README.md oraz union/README.md zawierają historię starszych wersji i niektóre nieaktualne ograniczenia. Ustal aktualną prawdę na podstawie kodu i dokumentacji DEV 0.13.
 
-Model oraz oryginalne zasoby wykorzystuję lokalnie do prywatnych, niekomercyjnych testów i nauki. Zachowaj je poza publicznym repozytorium.
+Użytkownik następnie wyraźnie zezwolił na publiczną publikację przygotowanej paczki modelu na GitHubie, aby Claude Code mógł pobrać i scalić komplet projektu. To aktualizuje wcześniejsze ustalenie o pozostawieniu tej paczki poza repozytorium. Użyj opublikowanego ZIP-a z zachowanym pochodzeniem w MANIFEST.json i INFOmesh_original.txt.
 
 2. DOCELOWE DZIAŁANIE MODA — UZGODNIONE WYMAGANIA
 
@@ -173,13 +173,13 @@ Przeszły:
 
 Istotne ograniczenie: testy C++ obejmują symulacje adapterów. Nie potwierdzają ABI Union ani działania ZenGin. GDC wymagał tymczasowej adaptacji C_NPC do niezależnego kompilatora; jego DAT służy wyłącznie kontroli kodu i NIE NADAJE SIĘ DO INSTALACJI W GOTHICU.
 
-Aktualnej DLL jeszcze nie skompilowano w poprzedniej instancji. Nie uruchomiono moda w Gothic I. Nie wykonano końcowej kompilacji modeli/tekstur/MDS/MAN przez silnik ani rzeczywistej końcowej budowy .mod. GIF jest renderem z Blendera.
+Po pierwotnym przekazaniu projektu kolejne commity na tej gałęzi potwierdziły kompilację aktualnej DLL przez MSVC w GitHub Actions: pierwszy udany build 6df5bca, PE32 i386, 180736 bajtów, SHA-256 55dc462d34d5afad4d64aeb17b1e0421b5c44c43942da3f29838ce7889ba9933. Aktualne instrukcje pobrania artefaktu i weryfikacji są w docs/DEV-013.md oraz tools/verify_dll.py. Raporty w ZIP opisują wcześniejszy moment konwersji i mogą nadal podawać native_dll_built=false. Nie uruchomiono jeszcze moda w Gothic I. Nie potwierdzono końcowej kompilacji modeli/tekstur/MDS/MAN przez silnik ani rzeczywistej końcowej budowy .mod. GIF jest renderem z Blendera.
 
 7. KOLEJNOŚĆ DALSZEJ REALIZACJI
 
-1) Odtwórz aktualny kod z załącznika i sprawdź nowe środowisko. Zweryfikuj, co już przygotowano w tym nowym czacie. Zachowaj istniejące narzędzia, pliki i poprawki.
+1) Pobierz aktualną gałąź codex/dev013-handoff wraz z dołączoną paczką modelu i sprawdź nowe środowisko. Zweryfikuj, co już przygotowano w tym nowym czacie. Zachowaj istniejące narzędzia, pliki i poprawki.
 
-2) Doprowadź do rzeczywistej kompilacji natywnej DLL dla Gothic I Classic, konfiguracja G1 Release / Win32, C++17, odpowiednie ABI. Napraw wykryte błędy kompilacji/linkowania.
+2) Wykorzystaj potwierdzony build aktualnej natywnej DLL z GitHub Actions albo narzędzia przygotowane w tym czacie. Sprawdź PE32 i386 i marker przez tools/verify_dll.py. Gdy zmienisz natywny kod lub brakuje aktualnego artefaktu, zbuduj ponownie Gothic I Classic, G1 Release / Win32, C++17, odpowiednie ABI i napraw błędy kompilacji/linkowania.
 Windows:
 powershell -ExecutionPolicy Bypass -File tools/build_union.ps1
 Wymagany SDK UnionProject: commit 4ae1fc51bd962e72ed2a0b1d3da92084517db996.
@@ -259,4 +259,4 @@ Zachowaj istniejące pliki i kopie zapasowe. Waliduj zasoby przed zmianą gry. W
 
 Oddzielaj: kod zaimplementowany, kompilacja natywna, walidacja plików, kontrolny GDC i test faktycznej rozgrywki. Test syntetycznej siatki, sama obecność pliku MZ, stara DLL, zapisany workflow albo render Blendera nie potwierdzają ukończenia moda.
 
-Najbliższy priorytet: wykorzystać działające narzędzia nowego środowiska do prawdziwego zbudowania aktualnej DLL, następnie kompilacja zasobów i test w Gothic I. Dalej dokończyć wszystkie wymienione efekty, fizykę i animacje oraz przygotować sprawdzony pakiet grywalny. Jeśli pojawi się rzeczywista blokada, wykonaj pozostałą niezależną pracę i opisz dokładnie, czego brakuje do dalszego kroku.
+Najbliższy priorytet: pobrać opublikowaną paczkę modelu, wykorzystać zweryfikowaną aktualną DLL (lub przebudować po zmianie kodu), następnie skompilować zasoby i wykonać test w Gothic I. Dalej dokończyć wszystkie wymienione efekty, fizykę i animacje oraz przygotować sprawdzony pakiet grywalny. Jeśli pojawi się rzeczywista blokada, wykonaj pozostałą niezależną pracę i opisz dokładnie, czego brakuje do dalszego kroku.

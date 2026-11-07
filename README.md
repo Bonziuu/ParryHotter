@@ -10,15 +10,15 @@ Kod zawiera teraz sterowanie myszą i ruch względem kamery: **WASD / strzałki*
 
 Pasek ma stale widoczne kwadraty **1–9, 0**. Dostępne pozostają czary **1–6**. Pola **7, 8, 9, 0** są puste i nie rzucają zaklęć. **F10** przełącza diagnostykę, **F11** przełącza nowy ruch/kamerę i standardowy ruch Gothica. Nowy kontroler oddaje sterowanie podczas rozmów, ekwipunku, pływania, wspinania, obrażeń i scenek. Natywne reguły Gothica nadal decydują, czy można rozpocząć dany skok.
 
-Konwersja modelu korzysta z rzeczywistego importera/eksportera KrxImpExp, mapuje oryginalne wagi według anatomii na szkielet Gothica, dopasowuje głowę i rozkłada pelerynę na kilka kości tułowia. Instalator usuwa starą głowę Gothica wyłącznie u głównego bohatera. Kod wtyczki ponawia wizual Harry’ego po zmianie pancerza, zachowując właściwości przedmiotu. **To wymaga rzeczywistego Harry FBX/tekstur oraz referencji szkieletu Gothica; tych plików nie ma w repozytorium.**
+Konwersja modelu korzysta z rzeczywistego importera/eksportera KrxImpExp, mapuje oryginalne wagi według anatomii na szkielet Gothica, dopasowuje głowę i rozkłada pelerynę na kilka kości tułowia. Instalator usuwa starą głowę Gothica wyłącznie u głównego bohatera. Kod wtyczki ponawia wizual Harry’ego po zmianie pancerza, zachowując właściwości przedmiotu. **Gotowy model, tekstury i projekty Blendera są dostępne w dołączonej paczce [ParryHotter_Harry_Gothic.zip](ParryHotter_Harry_Gothic.zip). Nie trzeba wykonywać konwersji od zera do instalacji źródeł.**
 
-**Stan weryfikacji:** rzeczywisty Harry został dopasowany do 25 kości Gothica i wyeksportowany do ASC z czterema teksturami. Sprawdzono pozy głowy, ręki i kolana oraz instalację na rzeczywistych źródłach ModKitu/Unified-PL. Dodano własne animacje przygotowania i rzutu różdżką: dwa klipy ASC i nakładkę tylko dla bohatera. Przeszły walidację i ponowny import do Blendera. Natywnej DLL 0.13 i rozgrywki nie uruchomiono w tym środowisku. Nie jest to jeszcze gotowe wydanie `.mod`. Zaklęcia nadal wykorzystują efekty Gothica; pełny zestaw ruchów HP, ragdoll i odwrócona lewitacja pozostają do wykonania i testów.
+**Stan weryfikacji:** rzeczywisty Harry został dopasowany do 25 kości Gothica i wyeksportowany do ASC z czterema teksturami. Sprawdzono pozy głowy, ręki i kolana oraz instalację na rzeczywistych źródłach ModKitu/Unified-PL. Dodano własne animacje przygotowania i rzutu różdżką: dwa klipy ASC i nakładkę tylko dla bohatera. Przeszły walidację i ponowny import do Blendera. Aktualna DLL 0.13 została zbudowana przez MSVC i zweryfikowana w GitHub Actions; szczegóły są w docs/DEV-013.md. Rozgrywki w ZenGin nadal nie sprawdzono. Nie jest to jeszcze gotowe wydanie `.mod`. Zaklęcia nadal wykorzystują efekty Gothica; pełny zestaw ruchów HP, ragdoll i odwrócona lewitacja pozostają do wykonania i testów.
 
 Sprawdzenie kodu: `python -m tools.check`. Kompilacja kontrolna prawdziwych polskich skryptów: `python -m tools.verify_daedalus` (wynik kontrolny nie nadaje się do instalowania w grze).
 
-Na Windows z Visual Studio 2022 C++/Win32 zbuduj aktualną wtyczkę poleceniem `powershell -ExecutionPolicy Bypass -File tools/build_union.ps1`, następnie wykonaj **Reparse Scripts** w GothicStarter_mod i `ZBUDUJ_MOD_PO_REPARSE.bat`. Lokalna DLL z `.parryhotter/build` ma pierwszeństwo przed pobieraniem. Pakowanie odrzuca starą DLL `hud-dev`, jeżeli nie zawiera zgodnego identyfikatora wersji. Skrypt kompilacji Windows jest przygotowany, ale nie został wykonany w tej sesji.
+Na Windows z Visual Studio 2022 C++/Win32 zbuduj aktualną wtyczkę poleceniem `powershell -ExecutionPolicy Bypass -File tools/build_union.ps1`, następnie wykonaj **Reparse Scripts** w GothicStarter_mod i `ZBUDUJ_MOD_PO_REPARSE.bat`. Lokalna DLL z `.parryhotter/build` ma pierwszeństwo przed pobieraniem. Pakowanie odrzuca starą DLL `hud-dev`, jeżeli nie zawiera zgodnego identyfikatora wersji. GitHub Actions uruchamia ten sam skrypt i udostępnia zweryfikowaną DLL jako artefakt; sposób pobrania opisuje docs/DEV-013.md.
 
-Prywatna paczka `ParryHotter_Harry_Gothic.zip` zawiera gotowy źródłowy model ASC i cztery TGA. Umieszczona obok `INSTALUJ_PARRY_HOTTER.bat` jest wykrywana automatycznie: nie wymaga ponownego pobierania modelu ani Blendera. Można też wywołać `python -m tools.import_harry_bundle --game "SCIEZKA_DO_GOTHIC" --bundle "ParryHotter_Harry_Gothic.zip"`. To instalacja źródeł; parser gry, aktualna DLL i test w silniku są nadal konieczne.
+Dołączona paczka [ParryHotter_Harry_Gothic.zip](ParryHotter_Harry_Gothic.zip) zawiera gotowy źródłowy model ASC i cztery TGA. Umieszczona obok `INSTALUJ_PARRY_HOTTER.bat` jest wykrywana automatycznie: nie wymaga ponownego pobierania modelu ani Blendera. Można też wywołać `python -m tools.import_harry_bundle --game "SCIEZKA_DO_GOTHIC" --bundle "ParryHotter_Harry_Gothic.zip"`. To instalacja źródeł; parser gry, aktualna DLL i test w silniku są nadal konieczne.
 
 Aktualna paczka zawiera też `PH_HARRY_CAST.MDS`, `PH_HARRY_CHARGE.ASC` i
 `PH_HARRY_RELEASE.ASC`. Instalator przyjmuje ten zestaw w całości i nakłada go
@@ -30,6 +30,9 @@ identyfikator z końcówką `_CAST_ANIM`.
 Paczka modelu jest sprawdzana przed wymianą skryptów. Błędy zapisu podczas importu
 modelu przywracają wcześniejsze źródła, aktywne zasoby, prywatny cache i kopie
 zapasowe. Pakowanie przywraca poprzednią parę `.mod`/profil PLAY po błędzie zapisu.
+
+Dostęp do modelu i projektów przy scalaniu w Claude Code: [instrukcja modelu](docs/MODEL_DLA_CLAUDE_CODE.md).
+Suma paczki jest zapisana w `ParryHotter_Harry_Gothic.zip.sha256`.
 
 Szczegółowe wymagania i próby w silniku: [docs/DEV-013.md](docs/DEV-013.md).
 
