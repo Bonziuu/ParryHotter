@@ -12,14 +12,14 @@ int main() {
     CastLedger ledger;
 
     // An actual effect is mandatory, even for a synchronous provisional hit.
-    assert(ledger.Stage(0, 20, 1, 0, start) == CastLedger::Invalid);
-    assert(ledger.Stage(10, 0, 1, 0, start) == CastLedger::Invalid);
-    assert(ledger.Stage(10, 20, -1, 0, start) == CastLedger::Invalid);
-    assert(ledger.Stage(10, 20, 1, -1, start) == CastLedger::Invalid);
+    assert(ledger.Stage(0, 20, 1, 0, start) == CastLedger::NoId);
+    assert(ledger.Stage(10, 0, 1, 0, start) == CastLedger::NoId);
+    assert(ledger.Stage(10, 20, -1, 0, start) == CastLedger::NoId);
+    assert(ledger.Stage(10, 20, 1, -1, start) == CastLedger::NoId);
     assert(ledger.Size(start) == 0);
 
     const auto old = ledger.Stage(10, 20, 1, 0, start);
-    assert(old != CastLedger::Invalid);
+    assert(old != CastLedger::NoId);
     auto hit = ledger.Resolve(10, 20, 1, start);
     assert(hit.state == State::Matched && hit.id == old && hit.slot == 0);
     assert(!hit.confirmed); // native Cast() has not returned yet
@@ -47,7 +47,7 @@ int main() {
     // Exact duplicate identities are ambiguous, even if the slots are equal.
     const auto duplicate = ledger.Stage(10, 20, 1, 0, start + seconds(1));
     hit = ledger.Resolve(10, 20, 1, start + seconds(2));
-    assert(hit.state == State::Ambiguous && hit.id == CastLedger::Invalid);
+    assert(hit.state == State::Ambiguous && hit.id == CastLedger::NoId);
     assert(hit.slot == -1 && !hit.confirmed);
     assert(!ledger.TryMarkImpact(duplicate, start + seconds(2)));
     assert(ledger.Revoke(duplicate));
@@ -85,19 +85,19 @@ int main() {
 
     // Capacity exhaustion must preserve all earlier live projectiles.
     ledger.Clear();
-    CastLedger::Id first = CastLedger::Invalid;
+    CastLedger::Id first = CastLedger::NoId;
     for (std::size_t i = 0; i < CastLedger::Capacity; ++i) {
         const auto id = ledger.Stage(100 + i, 200 + i, 0, 0, start);
-        assert(id != CastLedger::Invalid);
+        assert(id != CastLedger::NoId);
         if (i == 0) first = id;
     }
     assert(ledger.Size(start) == CastLedger::Capacity);
-    assert(ledger.Stage(999, 888, 2, 7, start) == CastLedger::Invalid);
+    assert(ledger.Stage(999, 888, 2, 7, start) == CastLedger::NoId);
     assert(ledger.Resolve(100, 200, 0, start).id == first);
-    assert(ledger.Stage(999, 888, 2, 7, start + seconds(7)) != CastLedger::Invalid);
+    assert(ledger.Stage(999, 888, 2, 7, start + seconds(7)) != CastLedger::NoId);
     assert(ledger.Size(start + seconds(7)) == 1);
-    assert(!ledger.Confirm(CastLedger::Invalid, start));
-    assert(!ledger.Revoke(CastLedger::Invalid));
+    assert(!ledger.Confirm(CastLedger::NoId, start));
+    assert(!ledger.Revoke(CastLedger::NoId));
 
     // Charging and launched projectile FX remain one cast, even when the
     // native spell swaps the effect object inside Cast().

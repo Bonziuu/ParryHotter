@@ -16,12 +16,12 @@ public:
     using Id = std::uint64_t;
     static constexpr std::size_t Capacity = 32;
     static constexpr auto Lifetime = std::chrono::seconds(7);
-    static constexpr Id Invalid = 0;
+    static constexpr Id NoId = 0;
 
     enum class MatchState { NoMatch, Matched, Ambiguous };
     struct Match {
         MatchState state = MatchState::NoMatch;
-        Id id = Invalid;
+        Id id = NoId;
         int slot = -1; // zero-based slot; -1 is never an identified spell
         bool confirmed = false;
     };
@@ -33,17 +33,17 @@ public:
              TimePoint now) {
         Expire(now);
         if (effect == 0 || target == 0 || nativeSpellId < 0 || slot < 0)
-            return Invalid;
+            return NoId;
         for (auto& entry : entries_) {
-            if (entry.id != Invalid) continue;
+            if (entry.id != NoId) continue;
             ++nextId_;
-            if (nextId_ == Invalid) ++nextId_;
+            if (nextId_ == NoId) ++nextId_;
             entry = {nextId_, effect, target, nativeSpellId, slot,
                      now + Lifetime, false, false};
             return entry.id;
         }
         // Do not evict a still-live projectile to classify a newer one.
-        return Invalid;
+        return NoId;
     }
 
     bool Confirm(Id id, TimePoint now) {
@@ -83,12 +83,12 @@ public:
         for (const auto& entry : entries_) {
             bool sameEffect = entry.effect == effect;
             for (const auto alias : entry.aliases) sameEffect |= alias == effect;
-            if (entry.id == Invalid || now >= entry.expires ||
+            if (entry.id == NoId || now >= entry.expires ||
                 !sameEffect || entry.target != victim ||
                 entry.nativeSpellId != nativeSpellId) continue;
             if (result.state == MatchState::Matched) {
                 // Even duplicate keys are not assumed to mean the latest cast.
-                return {MatchState::Ambiguous, Invalid, -1, false};
+                return {MatchState::Ambiguous, NoId, -1, false};
             }
             result = {MatchState::Matched, entry.id, entry.slot,
                       entry.confirmed};
@@ -99,7 +99,7 @@ public:
     // Lets an engine adapter release retained effect/NPC references after
     // expiry, rejection or a world reset without exposing mutable entries.
     Match FindById(Id id, TimePoint now) const {
-        if (id == Invalid) return {};
+        if (id == NoId) return {};
         for (const auto& entry : entries_) {
             if (entry.id == id && now < entry.expires)
                 return {MatchState::Matched, entry.id, entry.slot,
@@ -128,7 +128,7 @@ public:
 
     void Expire(TimePoint now) {
         for (auto& entry : entries_) {
-            if (entry.id != Invalid && now >= entry.expires) entry = {};
+            if (entry.id != NoId && now >= entry.expires) entry = {};
         }
     }
 
@@ -141,14 +141,14 @@ public:
     std::size_t Size(TimePoint now) const {
         std::size_t count = 0;
         for (const auto& entry : entries_) {
-            if (entry.id != Invalid && now < entry.expires) ++count;
+            if (entry.id != NoId && now < entry.expires) ++count;
         }
         return count;
     }
 
 private:
     struct Entry {
-        Id id = Invalid;
+        Id id = NoId;
         Token effect = 0;
         Token target = 0;
         int nativeSpellId = -1;
@@ -160,7 +160,7 @@ private:
     };
 
     Entry* Find(Id id) {
-        if (id == Invalid) return nullptr;
+        if (id == NoId) return nullptr;
         for (auto& entry : entries_) {
             if (entry.id == id) return &entry;
         }
@@ -168,7 +168,7 @@ private:
     }
 
     std::array<Entry, Capacity> entries_{};
-    Id nextId_ = Invalid;
+    Id nextId_ = NoId;
 };
 
 } // namespace ParryHotter

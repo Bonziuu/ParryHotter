@@ -65,11 +65,14 @@ def check_cpp(directory: Path, compiler: str) -> int:
     command = shlex.split(compiler)
     if not command:
         raise RuntimeError("C++ compiler command is empty")
+    # Reproduce the Union SDK's identifier-like macros (Invalid, None, ...)
+    # so a name clash fails here instead of only under MSVC.
+    shim = ROOT / "union" / "tests" / "union_sdk_macros.hpp"
     for source in sources:
         output = directory / (source.stem + (".exe" if os.name == "nt" else ""))
         print(f"BUILD: {source.relative_to(ROOT)}", flush=True)
         # Assertions stay enabled; these binaries use assert as their runner.
-        subprocess.run(command + ["-std=c++17", "-Wall", "-Wextra", "-Werror", "-UNDEBUG", str(source), "-o", str(output)], cwd=ROOT, check=True)
+        subprocess.run(command + ["-std=c++17", "-Wall", "-Wextra", "-Werror", "-UNDEBUG", "-include", str(shim), str(source), "-o", str(output)], cwd=ROOT, check=True)
         subprocess.run([str(output)], cwd=directory, check=True)
     print(f"PASS: {len(sources)} portable C++ test binaries", flush=True)
     return len(sources)
