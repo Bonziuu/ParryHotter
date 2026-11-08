@@ -157,11 +157,22 @@ obiekt Git `a22a2f21877f8f1ecf11f9878f21a7c142b73566`; SHA-256:
 
 ## Jak testować u użytkownika
 
+Automatyczna aktualizacja samej DLL: rozpakować z `dev013-latest` paczkę
+`ParryHotter-aktualizator.zip` do folderu projektu w Pobranych i uruchamiać
+`AKTUALIZUJ_PARRY_HOTTER.bat`. Pobiera i weryfikuje DLL, robi trwałe kopie,
+podmienia wyłącznie jej wpis wewnątrz istniejącego `.mod` oraz lokalny cache DLL,
+a następnie otwiera GothicStarter. Nie wymaga Git, Visual Studio ani Reparse;
+wymaga zamkniętej gry i Pythona. Pełna instrukcja:
+[AKTUALIZACJA-DLL.md](AKTUALIZACJA-DLL.md).
+
+Ręczna ścieżka, przydatna również po zmianach skryptów lub zasobów:
+
 1. Pobrać DLL z prerelease `dev013-latest` i sprawdzić `.sha256` oraz
    `tools/verify_dll.py`.
 2. Podmienić `.parryhotter\build\ParryHotterHUD-G1.dll`.
-3. Uruchomić `ZBUDUJ_MOD_PO_REPARSE.bat`, gdy zmieniły się skrypty, tekstury
-   albo animacje (sama DLL tego nie wymaga).
+3. Uruchomić `ZBUDUJ_MOD_PO_REPARSE.bat`, aby lokalna DLL trafiła do `.mod`.
+   Gdy zmieniły się skrypty, najpierw wykonać Reparse. Sama podmiana DLL nie
+   wymaga Reparse; nowy aktualizator podmienia ją bez pełnego budowania moda.
 4. Uruchomić GothicStarter_mod, wybrać profil **Parry Hotter (PLAY)** i
    rozpocząć nową grę.
 5. Do testów można użyć konsoli: B, wpisać `marvin`, B, potem F2 i

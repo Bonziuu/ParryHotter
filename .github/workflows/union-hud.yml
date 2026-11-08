@@ -1,23 +1,7 @@
 name: Experimental Gothic I Union HUD plugin
 on:
   push:
-    paths:
-      - 'union/**'
-      - 'tools/generate_hud_textures.py'
-      - 'tools/spell_catalog.py'
-      - 'tools/check.py'
-      - 'tools/build_union.ps1'
-      - 'tools/verify_dll.py'
-      - '.github/workflows/union-hud.yml'
   pull_request:
-    paths:
-      - 'union/**'
-      - 'tools/generate_hud_textures.py'
-      - 'tools/spell_catalog.py'
-      - 'tools/check.py'
-      - 'tools/build_union.ps1'
-      - 'tools/verify_dll.py'
-      - '.github/workflows/union-hud.yml'
   workflow_dispatch:
 
 permissions:
@@ -70,6 +54,8 @@ jobs:
           Copy-Item '.parryhotter/build/ParryHotterHUD-G1.dll' 'dev013/ParryHotterHUD-G1.dll' -Force
           $hash = (Get-FileHash 'dev013/ParryHotterHUD-G1.dll' -Algorithm SHA256).Hash.ToLower()
           "$hash  ParryHotterHUD-G1.dll" | Set-Content -NoNewline -Encoding ascii 'dev013/ParryHotterHUD-G1.dll.sha256'
+          python -m tools.build_update_bundle --out dev013/ParryHotter-aktualizator.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Nie zbudowano paczki aktualizatora' }
       - name: Publish DEV 0.13 branch build (verified PE32 i386, test only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/codex/dev013-handoff'
         uses: softprops/action-gh-release@v2
@@ -81,13 +67,18 @@ jobs:
           make_latest: false
           generate_release_notes: false
           body: |
-            Latest DLL built by MSVC from codex/dev013-handoff, commit ${{ github.sha }}.
-            Verified by tools/verify_dll.py (PE32 i386, PH_BUILD_013 marker).
-            For private testing in Gothic I with Union only; install through
-            the project's .parryhotter/build and ZBUDUJ_MOD_PO_REPARSE.bat.
+            DLL zbudowana przez MSVC z codex/dev013-handoff, commit ${{ github.sha }}.
+            Weryfikacja: tools/verify_dll.py (PE32 i386, identyfikator PH_BUILD_013).
+            Do lokalnych testow Gothic I Classic z Union.
+            Automatyczne aktualizacje: rozpakuj ParryHotter-aktualizator.zip do
+            folderu projektu i uruchamiaj AKTUALIZUJ_PARRY_HOTTER.bat.
+            Aktualizator sprawdza SHA-256, zachowuje kopie i podmienia tylko DLL
+            wewnatrz lokalnego ParryHotter.mod. Modele i zasoby pozostaja lokalne.
           files: |
             dev013/ParryHotterHUD-G1.dll
             dev013/ParryHotterHUD-G1.dll.sha256
+            dev013/ParryHotter-aktualizator.zip
+            dev013/ParryHotter-aktualizator.zip.sha256
           fail_on_unmatched_files: true
       - name: Prepare clearly labeled experimental G1 DLL
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
