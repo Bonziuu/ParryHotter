@@ -906,8 +906,9 @@ namespace {
             auto* prepared = book ? book->GetSelectedSpell() : nullptr;
             if (!prepared || prepared->GetSpellID() != kGothicSpellIds[spell] ||
                 !prepared->GetEnabled() || !prepared->IsValidTarget(npc) ||
-                prepared->GetSpellStatus() == SPL_STATUS_STOP ||
-                prepared->GetSpellStatus() == SPL_STATUS_DONTINVEST) {
+                prepared->GetSpellStatus() == SPL_STATUS_STOP) {
+                // DONTINVEST (prepare animation still running) keeps the lock:
+                // HP2 shows the target at once, a release then queues the cast.
                 hasTarget = false;
             }
         }
@@ -936,6 +937,20 @@ namespace {
             }
         }
         const int targetIndex = glyph.visible ? spell : -1;
+        // HP2 lock-on: a chime when the dot reaches a new NPC, and the
+        // engine focus shows that NPC's name. The pointer is only compared.
+        static const oCNpc* lockedNpc = nullptr;
+        if (targetIndex >= 0 && npc) {
+            if (npc != lockedNpc) {
+                lockedNpc = npc;
+                if (zsound && player)
+                    zsound->PlaySound3D(zSTRING("MFX_LIGHT_CAST"), static_cast<zCVob*>(player), 0, nullptr);
+                gLog.Line("lock-on slot=%d npc=%p", spell, static_cast<void*>(npc));
+            }
+            if (player) player->SetFocusVob(static_cast<zCVob*>(npc));
+        } else {
+            lockedNpc = nullptr;
+        }
         if (gShownTargetSlot >= 0 && targetIndex != gShownTargetSlot) {
             screen->RemoveItem(gTargetIcons[gShownTargetSlot]);
         }

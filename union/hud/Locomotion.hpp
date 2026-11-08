@@ -35,7 +35,7 @@ class Locomotion final {
 public:
     struct Settings {
         float runSpeed = 650.0f;
-        float aimSpeed = 450.0f;
+        float aimSpeed = 650.0f; // no slowdown while aiming (user decision)
         // HP2 (PC) reaches full speed in about 0.2 s (AccelRate 1024 at
         // GroundSpeed 210) and steers in the air at 25% (AirControl 0.25).
         float groundAcceleration = 3250.0f;
