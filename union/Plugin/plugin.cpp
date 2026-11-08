@@ -77,9 +77,13 @@ namespace Gothic_I_Classic {
     auto& Ivk_PH_HumanAI = UnionCore::CreateHook(
         &oCAIHuman::DoAI, &oCAIHuman::PH_DoAI, UnionCore::Hook_Auto);
     void oCAIHuman::PH_DoAI(zCVob* vob, int& state) {
+        // Hide RMB from the player's native AI only (RMB + W jumped in-game).
+        ParryControls::maskNativeRmb = this->npc && this->npc == player &&
+            ParryControls::rmbGuard.Engaged() && ParryControls::ContextAvailable();
         ParryControls::BeforeHumanAI(this);
         THISCALL(Ivk_PH_HumanAI)(vob, state);
         ParryControls::AfterHumanAI(this);
+        ParryControls::maskNativeRmb = false;
     }
     auto& Ivk_PH_WeaponChoose = UnionCore::CreateHook(
         &oCAIHuman::WeaponChoose, &oCAIHuman::PH_WeaponChoose, UnionCore::Hook_Auto);
@@ -105,6 +109,30 @@ namespace Gothic_I_Classic {
         &zCAICamera::CheckKeys, &zCAICamera::PH_CheckKeys, UnionCore::Hook_Auto);
     void zCAICamera::PH_CheckKeys() {
         if (!ParryControls::OwnsInput()) THISCALL(Ivk_PH_CameraKeys)();
+    }
+}
+
+namespace Gothic_I_Classic {
+    auto& Ivk_PH_MouseRight = UnionCore::CreateHook(
+        &zCInput_Win32::GetMouseButtonPressedRight,
+        &zCInput_Win32::PH_GetMouseButtonPressedRight, UnionCore::Hook_Auto);
+    int zCInput_Win32::PH_GetMouseButtonPressedRight() {
+        if (ParryControls::maskNativeRmb) return 0;
+        return THISCALL(Ivk_PH_MouseRight)();
+    }
+
+    auto& Ivk_PH_KeyPressed = UnionCore::CreateHook(
+        &zCInput_Win32::KeyPressed, &zCInput_Win32::PH_KeyPressed, UnionCore::Hook_Auto);
+    int zCInput_Win32::PH_KeyPressed(int key) {
+        if (ParryControls::maskNativeRmb && key == MOUSE_BUTTONRIGHT) return 0;
+        return THISCALL(Ivk_PH_KeyPressed)(key);
+    }
+
+    auto& Ivk_PH_KeyToggled = UnionCore::CreateHook(
+        &zCInput_Win32::KeyToggled, &zCInput_Win32::PH_KeyToggled, UnionCore::Hook_Auto);
+    int zCInput_Win32::PH_KeyToggled(int key) {
+        if (ParryControls::maskNativeRmb && key == MOUSE_BUTTONRIGHT) return 0;
+        return THISCALL(Ivk_PH_KeyToggled)(key);
     }
 }
 

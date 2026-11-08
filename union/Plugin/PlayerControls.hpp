@@ -106,6 +106,12 @@ struct RmbBindingGuard {
 };
 inline RmbBindingGuard rmbGuard;
 
+// Gothic I also reads the right mouse button directly in the player's
+// movement AI (RMB + forward = jump), bypassing every binding. While the
+// player's native AI runs and spells own RMB, the input hooks report RMB
+// as released. Spells read RMB earlier, in CaptureInput.
+inline bool maskNativeRmb = false;
+
 // Call from every lifecycle hook where the game takes control back.
 inline void ReleaseNativeBindings() { rmbGuard.Release(); }
 
