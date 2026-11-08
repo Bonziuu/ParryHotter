@@ -26,6 +26,7 @@
 #include "TargetGlyph.hpp"
 #include "CastLedger.hpp"
 #include "CastLog.hpp"
+#include "AimAssist.hpp"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -45,6 +46,7 @@ namespace {
         oCNpc* victim, const oCNpc::oSDamageDescriptor& descriptor
     );
     int CastTracked(oCSpell* spell);
+    int InvestTracked(oCSpell* spell);
     void LogJumpInput(oCAIHuman* ai);
     void BeginDamage(oCNpc*, const oCNpc::oSDamageDescriptor&);
     void EndDamage();
@@ -76,6 +78,10 @@ namespace Gothic_I_Classic {
     auto& Ivk_PH_Cast = UnionCore::CreateHook(
         &oCSpell::Cast, &oCSpell::PH_Cast, UnionCore::Hook_Auto);
     int oCSpell::PH_Cast() { return CastTracked(this); }
+
+    auto& Ivk_PH_Invest = UnionCore::CreateHook(
+        &oCSpell::Invest, &oCSpell::PH_Invest, UnionCore::Hook_Auto);
+    int oCSpell::PH_Invest() { return InvestTracked(this); }
 
     auto& Ivk_PH_HumanAI = UnionCore::CreateHook(
         &oCAIHuman::DoAI, &oCAIHuman::PH_DoAI, UnionCore::Hook_Auto);
@@ -227,6 +233,33 @@ namespace {
     bool gLowerAfterCast = false;
     enum class CastAttempt { Refused, Requested, NotReady };
 
+    // Depth of the plugin's own Spell_Invest/Spell_Cast calls. In the first
+    // recorded session Gothic invested and launched the player's Thunderball
+    // twice on its own while LMB was held at a wall (no plugin request),
+    // provoking the gate guards. Outside this scope the player's spells
+    // neither invest nor cast while the plugin owns magic input.
+    int gOwnMagicCall = 0;
+    struct OwnMagicCall {
+        OwnMagicCall() { ++gOwnMagicCall; }
+        ~OwnMagicCall() { --gOwnMagicCall; }
+    };
+
+    bool BlocksForeignPlayerMagic(oCSpell* spell) {
+        return spell && player && spell->spellCasterNpc == player &&
+               gOwnMagicCall == 0 && ParryControls::ContextAvailable();
+    }
+
+    int InvestTracked(oCSpell* spell) {
+        if (BlocksForeignPlayerMagic(spell)) {
+            static int blocked = 0;
+            if (++blocked <= 20 || blocked % 200 == 0)
+                gLog.Line("native INVEST blocked spellId=%d (count=%d)",
+                          spell->GetSpellID(), blocked);
+            return spell->GetSpellStatus();
+        }
+        return (spell->*Gothic_I_Classic::Ivk_PH_Invest)();
+    }
+
     // Diagnostics: every change of the jump input with the native facts
     // that decide whether a jump can start.
     void LogJumpInput(oCAIHuman* ai) {
@@ -342,6 +375,10 @@ namespace {
     }
 
     int CastTracked(oCSpell* spell) {
+        if (spell != gRequestedSpell && BlocksForeignPlayerMagic(spell)) {
+            gLog.Line("native CAST blocked spellId=%d (no plugin request)", spell->GetSpellID());
+            return 0;
+        }
         const bool ours = spell && spell == gRequestedSpell && spell->spellCasterNpc == player &&
             gRequestedTarget && gRequestedSlot >= 0 &&
             gRequestedSlot < ParryHotter::kSpellCount &&
@@ -886,6 +923,49 @@ namespace {
     // Camera-centered aiming is authoritative. The native Gothic focus may
     // point to another nearby NPC and must not silently block the crosshair.
     // The nearest ray hit must itself be a living NPC, not a wall or prop.
+    // True when nothing blocks the straight line from the camera to the NPC.
+    bool CameraSeesNpc(zCWorld* world, const zVEC3& eye, oCNpc* npc) {
+        const zVEC3 aim = npc->GetPositionWorld();
+        const zVEC3 ray = aim - eye;
+        const int flags = zTRACERAY_VOB_BBOX | zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
+        if (!world->TraceRayNearestHit(eye, ray, static_cast<zCVob*>(player), flags))
+            return true;
+        return world->traceRayReport.foundVob == npc;
+    }
+
+    bool InSpellRange(oCNpc* npc) {
+        const float distance = player->GetDistanceToVob(*npc);
+        return distance >= 0.0f && distance < 1900.0f;
+    }
+
+    // HP2 cursor snap: the living NPC nearest the screen centre inside an
+    // 8 degree cone, visible from the camera and within 19 m of the player.
+    oCNpc* AimAssistTarget(zCWorld* world, const zVEC3& eye, const zVEC3& direction) {
+        oCWorld* gameWorld = ogame ? ogame->GetGameWorld() : nullptr;
+        if (!gameWorld || static_cast<zCWorld*>(gameWorld) != world ||
+            !gameWorld->voblist_npcs) return nullptr;
+        std::vector<ParryHotter::AimCandidate> candidates;
+        std::vector<oCNpc*> npcs;
+        for (auto* node = gameWorld->voblist_npcs->next; node; node = node->next) {
+            oCNpc* npc = node->data;
+            if (!npc || npc == player || npc->GetHomeWorld() != world) continue;
+            const zVEC3 at = npc->GetPositionWorld();
+            candidates.push_back({{at[VX], at[VY], at[VZ]}, !npc->IsDead()});
+            npcs.push_back(npc);
+        }
+        const ParryHotter::AimVec eyeV{eye[VX], eye[VY], eye[VZ]};
+        const ParryHotter::AimVec dirV{direction[VX], direction[VY], direction[VZ]};
+        // Try candidates from the best angle down until one is visible.
+        for (int attempts = 0; attempts < 4; ++attempts) {
+            const int best = ParryHotter::PickAimAssist(eyeV, dirV, candidates);
+            if (best < 0) return nullptr;
+            oCNpc* npc = npcs[best];
+            if (InSpellRange(npc) && CameraSeesNpc(world, eye, npc)) return npc;
+            candidates[best].alive = false; // exclude and look for the next
+        }
+        return nullptr;
+    }
+
     oCNpc* GetCenteredNpcTarget() {
         if (!player) {
             SetAimTargetState(ParryHotter::AimTargetState::NoPlayer);
@@ -909,36 +989,29 @@ namespace {
             return nullptr;
         }
         direction.Normalize();
-        direction *= zVEC3(1900.0f);
+        const zVEC3 eye = cameraVob->GetPositionWorld();
+        zVEC3 ray = direction;
+        ray *= zVEC3(1900.0f);
         const int flags = zTRACERAY_VOB_BBOX |
                           zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
-        if (!world->TraceRayNearestHit(
-                cameraVob->GetPositionWorld(), direction,
-                static_cast<zCVob*>(player), flags)) {
-            SetAimTargetState(ParryHotter::AimTargetState::NoRayHit);
-            return nullptr;
+        auto state = ParryHotter::AimTargetState::NoRayHit;
+        if (world->TraceRayNearestHit(eye, ray, static_cast<zCVob*>(player), flags)) {
+            oCNpc* npc = zDYNAMIC_CAST<oCNpc>(world->traceRayReport.foundVob);
+            if (!npc || npc == player) state = ParryHotter::AimTargetState::WallOrObject;
+            else if (npc->IsDead()) state = ParryHotter::AimTargetState::DeadNpc;
+            else if (npc->GetHomeWorld() != world) state = ParryHotter::AimTargetState::WrongWorld;
+            else if (!InSpellRange(npc)) state = ParryHotter::AimTargetState::OutOfRange;
+            else {
+                SetAimTargetState(ParryHotter::AimTargetState::ValidNpc);
+                return npc;
+            }
         }
-        zCVob* hitVob = world->traceRayReport.foundVob;
-        oCNpc* npc = zDYNAMIC_CAST<oCNpc>(hitVob);
-        if (!npc || npc == player) {
-            SetAimTargetState(ParryHotter::AimTargetState::WallOrObject);
-            return nullptr;
+        if (oCNpc* snapped = AimAssistTarget(world, eye, direction)) {
+            SetAimTargetState(ParryHotter::AimTargetState::ValidNpc);
+            return snapped;
         }
-        if (npc->IsDead()) {
-            SetAimTargetState(ParryHotter::AimTargetState::DeadNpc);
-            return nullptr;
-        }
-        if (npc->GetHomeWorld() != world) {
-            SetAimTargetState(ParryHotter::AimTargetState::WrongWorld);
-            return nullptr;
-        }
-        const float distance = player->GetDistanceToVob(*npc);
-        if (distance < 0.0f || distance >= 1900.0f) {
-            SetAimTargetState(ParryHotter::AimTargetState::OutOfRange);
-            return nullptr;
-        }
-        SetAimTargetState(ParryHotter::AimTargetState::ValidNpc);
-        return npc;
+        SetAimTargetState(state);
+        return nullptr;
     }
 
     // Use the native spellbook so that mana, target rules and Gothic visual FX
@@ -1099,7 +1172,10 @@ namespace {
         }
         gLog.Line("cast slot=%d REQUEST target=%p status=%d", slot,
                   static_cast<void*>(target), status);
-        spellbook->Spell_Cast();
+        {
+            OwnMagicCall own;
+            spellbook->Spell_Cast();
+        }
         gLog.Line("cast slot=%d after Spell_Cast confirmed=%d pending=%d", slot,
                   gCastConfirmed ? 1 : 0, gRequestedSpell ? 1 : 0);
         // The native animation may call oCSpell::Cast on a later frame.
@@ -1226,7 +1302,7 @@ namespace {
                 ClearQueuedCast();
                 if (!out.aiming) LowerWand();
             } else {
-                if (book && !gRequestedSpell) book->Spell_Invest();
+                if (book && !gRequestedSpell) { OwnMagicCall own; book->Spell_Invest(); }
                 auto* queued = gQueuedTarget;
                 const int slot = gQueuedSlot;
                 const auto attempt = CastAtNpc(slot, queued);
@@ -1263,6 +1339,7 @@ namespace {
             player->GetSpellBook() && gCooldown.ReadyByTime(out.selected, now)) {
             // Gothic invests mana internally. Keep the prepared cast valid
             // even if the visible mana counter reaches zero mid-charge.
+            OwnMagicCall own;
             player->GetSpellBook()->Spell_Invest();
         }
     }
