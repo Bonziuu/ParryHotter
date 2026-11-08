@@ -373,8 +373,15 @@ namespace {
         }
         if (!gDiagnosticDirty) return;
         HideDiagnostics();
-        gDiagnosticPanel = new zCView(220, 420, 5850, 1440);
+        // Print() takes coordinates of the panel itself (0..8191 over its own
+        // height). Fixed offsets made the lines overlap in-game, so size the
+        // panel for four font lines and step by the panel's font height.
+        constexpr int kDiagnosticLines = 4;
+        const int screenLine = std::max(screen->FontY(), 96);
+        gDiagnosticPanel = new zCView(220, 420, 5850,
+                                      420 + screenLine * kDiagnosticLines + screenLine / 2);
         screen->InsertItem(gDiagnosticPanel);
+        const int line = std::max(gDiagnosticPanel->FontY(), 1);
         char title[220]{};
         char stats[240]{};
         char causes[260]{};
@@ -390,13 +397,13 @@ namespace {
                       gTelemetry.Get(ParryHotter::ImpactEvent::NoNativePhysics),
                       gTelemetry.Get(ParryHotter::ImpactEvent::NoRigidBody),
                       gTelemetry.Get(ParryHotter::ImpactEvent::NoClearance));
-        gDiagnosticPanel->Print(30, 20, zSTRING(title));
-        gDiagnosticPanel->Print(30, 250, zSTRING(stats));
-        gDiagnosticPanel->Print(30, 490, zSTRING(causes));
+        gDiagnosticPanel->Print(30, 0, zSTRING(title));
+        gDiagnosticPanel->Print(30, line, zSTRING(stats));
+        gDiagnosticPanel->Print(30, line * 2, zSTRING(causes));
         char targetLine[240]{};
         std::snprintf(targetLine, sizeof(targetLine), "Cel: %s",
                       ParryHotter::AimTargetDescription(gAimTargetState));
-        gDiagnosticPanel->Print(30, 710, zSTRING(targetLine));
+        gDiagnosticPanel->Print(30, line * 3, zSTRING(targetLine));
         gDiagnosticDirty = false;
     }
 
@@ -1079,6 +1086,7 @@ cexport void Game_Init() {
     gCooldown.Reset();
 }
 cexport void Game_Exit() {
+    ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     ResetSelectedSpellForScript();
     SetUnionPresence(false);
@@ -1091,6 +1099,7 @@ cexport void Game_Loop() { GameTick(); }
 cexport void Game_PostLoop() {}
 cexport void Game_MenuLoop() {}
 cexport void Game_SaveBegin() {
+    ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // Exit casting mode before the game records its save. Both mouse
     // buttons must be released before re-arming on return.
@@ -1107,6 +1116,7 @@ cexport void Game_SaveEnd() {
     SetUnionPresence(true);
 }
 cexport void Game_LoadBegin_NewGame() {
+    ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
     ResetSelectedSpellForScript();
@@ -1122,6 +1132,7 @@ cexport void Game_LoadEnd_NewGame() {
     gCooldown.Reset();
 }
 cexport void Game_LoadBegin_SaveGame() {
+    ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
     ResetSelectedSpellForScript();
@@ -1137,6 +1148,7 @@ cexport void Game_LoadEnd_SaveGame() {
     gCooldown.Reset();
 }
 cexport void Game_LoadBegin_ChangeLevel() {
+    ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
     ResetSelectedSpellForScript();

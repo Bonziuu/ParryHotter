@@ -11,7 +11,9 @@
 #include "../hud/FreeCamera.hpp"
 #endif
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <vector>
 
 namespace ParryControls {
 using namespace Gothic_I_Classic;
@@ -51,6 +53,61 @@ inline float movementDelta = 0.0f;
 inline float nativeJumpBuffer = 0.0f;
 inline bool previousJump = false;
 inline bool requireJumpRelease = false;
+
+// Gothic I binds RMB to native actions (GAME_SMOVE = jump). Zeroing the
+// logical state after input processing was not enough in the real engine:
+// RMB still made the hero jump and moved the camera. While spells own RMB,
+// RMB is removed from every native binding; the exact original lists are
+// restored whenever the game regains control (menus, options, dialogue,
+// inventory, save/load, exit), so the controls menu never sees or saves
+// the reduced bindings.
+struct RmbBindingGuard {
+    static constexpr int kFirstAction = GAME_LEFT;
+    static constexpr int kLastAction = 29; // GAME_LAME_HEAL
+    std::array<std::vector<unsigned short>, kLastAction + 1> saved{};
+    std::array<bool, kLastAction + 1> changed{};
+    zCInput_Win32* owner = nullptr;
+
+    bool Engaged() const { return owner != nullptr; }
+
+    void Engage(zCInput_Win32* in) {
+        if (!in || owner == in) return;
+        Release();
+        for (int logical = kFirstAction; logical <= kLastAction; ++logical) {
+            const auto action = static_cast<unsigned short>(logical);
+            if (!in->IsBinded(action, MOUSE_BUTTONRIGHT)) continue;
+            zCArray<unsigned short> current;
+            in->GetBinding(action, current);
+            zCArray<unsigned short> filtered;
+            saved[logical].clear();
+            for (int i = 0; i < current.GetNumInList(); ++i) {
+                saved[logical].push_back(current[i]);
+                if (current[i] != MOUSE_BUTTONRIGHT) filtered.InsertEnd(current[i]);
+            }
+            in->Bind(action, filtered);
+            changed[logical] = true;
+        }
+        owner = in;
+    }
+
+    void Release() {
+        if (owner) {
+            for (int logical = kFirstAction; logical <= kLastAction; ++logical) {
+                if (!changed[logical]) continue;
+                zCArray<unsigned short> original;
+                for (const auto key : saved[logical]) original.InsertEnd(key);
+                owner->Bind(static_cast<unsigned short>(logical), original);
+            }
+        }
+        changed.fill(false);
+        for (auto& list : saved) list.clear();
+        owner = nullptr;
+    }
+};
+inline RmbBindingGuard rmbGuard;
+
+// Call from every lifecycle hook where the game takes control back.
+inline void ReleaseNativeBindings() { rmbGuard.Release(); }
 
 inline float FrameSeconds() {
     const float seconds = ztimer ? ztimer->frameTimeFloat * 0.001f : 0.0f;
@@ -135,7 +192,11 @@ inline const InputSnapshot& GetInput() { return input; }
 inline bool OwnsInput() { return ownsInput && Available(); }
 
 inline void CaptureInput(zCInput_Win32* controls) {
-    if (!controls) { Disable(); return; }
+    if (!controls) { ReleaseNativeBindings(); Disable(); return; }
+    // Spells own RMB in both movement modes (F11 included) whenever the
+    // player is in a controllable state; elsewhere the game's bindings rule.
+    if (ContextAvailable()) rmbGuard.Engage(controls);
+    else ReleaseNativeBindings();
     if (controls->KeyToggled(KEY_F11)) {
         enabled = !enabled;
         Disable();

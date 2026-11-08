@@ -32,6 +32,9 @@
 #define GAME_STRAFERIGHT 19
 #define GAME_SMOVE 11
 #define GAME_SMOVE2 12
+#define MOUSE_BUTTONRIGHT 523
+#define KEY_LMENU 56
+#include <vector>
 namespace Gothic_I_Classic {
 struct zVEC3 { float a[3]; zVEC3(float x=0,float y=0,float z=0):a{x,y,z}{} float& operator[](int n){return a[n];} float operator[](int n)const{return a[n];} };
 struct zCVob { zVEC3 at{0,0,1},position; int begin=0,end=0; float biggestStep=0; zVEC3 GetAtVectorWorld(){return at;} void BeginMovement(){++begin;} void EndMovement(){++end;} void MoveWorld(float x,float y,float z){position[0]+=x;position[1]+=y;position[2]+=z;biggestStep=std::max(biggestStep,std::hypot(x,z));} void SetHeadingYWorld(zVEC3 p){at=p;} void RotateWorldY(float d){float angle=std::atan2(at[0],at[2])+d*0.01745329252f;at=zVEC3(std::sin(angle),0,std::cos(angle));} };
@@ -39,7 +42,12 @@ struct zCModel { zVEC3 aniTransScale{1,1,1}; };
 struct zCRigidBody { zVEC3 v; void SetVelocity(zVEC3 p){v=p;} };
 struct oCNpc: zCVob { bool physicsEnabled=true; zCRigidBody bodyPhysics; zCRigidBody* GetRigidBody(){return &bodyPhysics;} bool openinventory=false,dead=false,human=true,movLock=false; int body=0; zCModel mdl; bool IsDead(){return dead;} bool IsHuman(){return human;} bool IsMovLock(){return movLock;} int GetBodyState(){return body;} zCModel* GetModel(){return &mdl;} };
 struct oCGame { bool inLoadSaveGame=false,inLevelChange=false,paused=false; bool IsOnPause(){return paused;} };
-struct zCInput_Win32 { std::map<int,int> keys,toggled,states; bool left=false,right=false; int KeyPressed(int n){return keys[n];} int KeyToggled(int n){int r=toggled[n];toggled[n]=0;return r;} int GetMouseButtonPressedRight(){return right;} int GetMouseButtonPressedLeft(){return left;} void GetMousePos(float&x,float&y,float&z){x=0;y=0;z=0;} int SetState(unsigned short n,int v){states[n]=v;return v;} };
+template<class T> struct zCArray { std::vector<T> v; int GetNumInList() const {return int(v.size());} T& operator[](int i){return v[i];} const T& operator[](int i) const {return v[i];} void InsertEnd(const T& x){v.push_back(x);} };
+struct zCInput_Win32 { std::map<int,std::vector<unsigned short>> bindings; int bindCalls=0;
+ int IsBinded(unsigned short a,unsigned short k){for(auto x:bindings[a]) if(x==k) return 1; return 0;}
+ int GetBinding(unsigned short a,zCArray<unsigned short>& out){out.v=bindings[a];return 1;}
+ void Bind(unsigned short a,const zCArray<unsigned short>& in){bindings[a]=in.v;++bindCalls;}
+ std::map<int,int> keys,toggled,states; bool left=false,right=false; int KeyPressed(int n){return keys[n];} int KeyToggled(int n){int r=toggled[n];toggled[n]=0;return r;} int GetMouseButtonPressedRight(){return right;} int GetMouseButtonPressedLeft(){return left;} void GetMousePos(float&x,float&y,float&z){x=0;y=0;z=0;} int SetState(unsigned short n,int v){states[n]=v;return v;} };
 struct zCAICamera { static zCAICamera* current; zCVob* camVob; bool inCutsceneMode=false,underWater=false; void* dialogCam=nullptr; float rotOffsetX=12,rotOffsetY=15; };
 zCAICamera* zCAICamera::current=nullptr;
 struct oCInformationManager { bool done=true; static oCInformationManager& GetInformationManager(){static oCInformationManager m;return m;} int HasFinished(){return done;} };
@@ -60,6 +68,24 @@ using namespace Gothic_I_Classic;
 int main(){
  oCNpc pc;oCGame game;zCInput_Win32 controls;zCVob camvob;zCAICamera cam;cam.camVob=&camvob;
  player=&pc;ogame=&game;zinput=&controls;zCAICamera::current=&cam;oCAIHuman ai;ai.npc=&pc;
+ // RMB is removed from native jump while spells own it; Alt keeps jumping.
+ controls.bindings[GAME_SMOVE]={KEY_LMENU,MOUSE_BUTTONRIGHT};
+ controls.bindings[GAME_UP]={KEY_W};
+ ParryControls::CaptureInput(&controls);
+ assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU}));
+ assert((controls.bindings[GAME_UP]==std::vector<unsigned short>{KEY_W}));
+ const int bindsAfterEngage=controls.bindCalls;
+ ParryControls::CaptureInput(&controls); assert(controls.bindCalls==bindsAfterEngage); // idempotent
+ game.paused=true; ParryControls::CaptureInput(&controls);
+ assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU,MOUSE_BUTTONRIGHT})); // exact order restored for menus
+ game.paused=false; ParryControls::CaptureInput(&controls);
+ assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU}));
+ controls.toggled[KEY_F11]=1; ParryControls::CaptureInput(&controls); // native movement: spells still own RMB
+ assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU}));
+ controls.toggled[KEY_F11]=1; ParryControls::CaptureInput(&controls);
+ ParryControls::ReleaseNativeBindings();
+ assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU,MOUSE_BUTTONRIGHT}));
+ ParryControls::Reset();
  controls.keys[KEY_W]=1;controls.keys[KEY_D]=1;controls.toggled[KEY_0]=1;
  ParryControls::CaptureInput(&controls);assert(ParryControls::OwnsInput());assert(ParryControls::GetInput().slotPressed==10);assert(controls.states[GAME_UP]==0);
  ParryControls::UpdateCamera(&cam);
