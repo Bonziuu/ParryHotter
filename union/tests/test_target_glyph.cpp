@@ -21,7 +21,7 @@ void AssertFits(const TargetGlyphInput& in, const TargetGlyphLayout& out) {
     assert(out.x >= 0 && out.y >= 0);
     assert(out.x + out.width <= in.viewportWidth);
     assert(out.y + out.height <= in.viewportHeight);
-    assert(out.transparency >= 0 && out.transparency <= 36);
+    assert(out.alpha >= 219 && out.alpha <= 255);
 }
 
 int main() {
@@ -41,18 +41,18 @@ int main() {
             case 4: blocked.lineOfSight = false; break;
         }
         const auto hidden = ComputeTargetGlyph(blocked);
-        assert(!hidden.visible && hidden.transparency == 255);
+        assert(!hidden.visible && hidden.alpha == 0);
     }
 
     // Bob, pulse and glow all change; there is no fixed reticle icon.
     in.seconds = 0.6;
     const auto raised = ComputeTargetGlyph(in);
     assert(raised.width > initial.width && raised.y < initial.y);
-    assert(raised.transparency < initial.transparency);
+    assert(raised.alpha > initial.alpha);
     in.seconds = 1.8;
     const auto lowered = ComputeTargetGlyph(in);
     assert(lowered.width < initial.width && lowered.y > initial.y);
-    assert(lowered.transparency > initial.transparency);
+    assert(lowered.alpha < initial.alpha);
 
     // Same elapsed time gives the same layout at 30 and 144 FPS.
     for (const int fps : {30, 144}) {
@@ -64,7 +64,7 @@ int main() {
         const auto exact = ComputeTargetGlyph(in);
         assert(sampled.x == exact.x && sampled.y == exact.y);
         assert(sampled.width == exact.width);
-        assert(sampled.transparency == exact.transparency);
+        assert(sampled.alpha == exact.alpha);
     }
 
     // Projection tracks the NPC's new position.

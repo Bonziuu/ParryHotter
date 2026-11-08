@@ -27,8 +27,10 @@ struct TargetGlyphLayout {
     int y = 0;
     int width = 0;
     int height = 0;
-    // zCView uses 0 for opaque and 255 for fully transparent.
-    int transparency = 255;
+    // zCView::SetTransparency stores zCView::alpha, i.e. OPACITY: 255 is
+    // fully visible and 0 is invisible (confirmed in Gothic I: views given 0
+    // disappeared). Kept as alpha so the call site cannot invert it again.
+    int alpha = 0;
 };
 
 inline TargetGlyphLayout ComputeTargetGlyph(const TargetGlyphInput& in) {
@@ -66,7 +68,8 @@ inline TargetGlyphLayout ComputeTargetGlyph(const TargetGlyphInput& in) {
                        0, maxY);
     out.width = size;
     out.height = size;
-    out.transparency = static_cast<int>(std::lround(18.0f * (1.0f - pulse)));
+    // Gentle glow: opacity breathes between 219 and 255.
+    out.alpha = 255 - static_cast<int>(std::lround(18.0f * (1.0f - pulse)));
     return out;
 }
 

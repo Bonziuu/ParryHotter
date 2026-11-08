@@ -571,6 +571,8 @@ namespace {
     int gActiveSlot = 0;
     bool gAttached = false;
     std::array<int, ParryHotter::kSpellCount> gSlotDimmed{};
+    // Opacity of an unavailable slot (no mana, cooldown, empty 7-0).
+    constexpr int kDimmedSlotAlpha = 110;
     zCModel* gWandModel = nullptr;
     zCModelNodeInst* gWandSocket = nullptr;
     zCVisual* gWandVisual = nullptr;
@@ -643,6 +645,10 @@ namespace {
     zCView* NewSprite(int x, int y, int width, int height, const char* name) {
         zCView* view = new zCView(x, y, x + width, y + height);
         view->InsertBack(zSTRING(name));
+        // Alpha-blend explicitly so zCView::alpha (opacity) always applies.
+        const zTRnd_AlphaBlendFunc blend = zRND_ALPHA_FUNC_BLEND;
+        view->SetAlphaBlendFunc(blend);
+        view->SetTransparency(255);
         return view;
     }
 
@@ -711,7 +717,8 @@ namespace {
             const int dim = (preparing || gCooldown.Ready(i, mana, now)) ? 0 : 1;
             if (gSlots[i] && gSlotDimmed[i] != dim) {
                 // Visual availability, never removes an icon from HUD.
-                gSlots[i]->SetTransparency(dim ? 145 : 0);
+                // SetTransparency takes opacity (zCView::alpha): 255 = solid.
+                gSlots[i]->SetTransparency(dim ? kDimmedSlotAlpha : 255);
                 gSlotDimmed[i] = dim;
             }
         }
@@ -774,7 +781,7 @@ namespace {
             auto* icon = gTargetIcons[targetIndex];
             icon->SetPos(screen->anx(glyph.x), screen->any(glyph.y));
             icon->SetSize(screen->anx(glyph.width), screen->any(glyph.height));
-            icon->SetTransparency(glyph.transparency);
+            icon->SetTransparency(glyph.alpha);
             if (targetIndex != gShownTargetSlot) screen->InsertItem(icon);
         }
         gShownTargetSlot = targetIndex;
