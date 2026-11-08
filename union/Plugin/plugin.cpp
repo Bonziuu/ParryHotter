@@ -10,6 +10,10 @@
 #include "plugin.h"
 #include "UnionAfx.h"
 #include <cstdio>
+// A member pointer to a virtual SDK method is an MSVC vcall thunk, not the
+// engine function: hooking it caught no engine call (in-game counters stayed
+// 0). Virtual methods are therefore hooked at their Gothic I 1.08k address.
+#define PH_VIRTUAL(address) reinterpret_cast<void*>(address)
 #ifdef min
 #undef min
 #endif
@@ -57,7 +61,7 @@ namespace {
 
 namespace Gothic_I_Classic {
     auto& Ivk_PH_OnDamage = UnionCore::CreateHook(
-        static_cast<void (oCNpc::*)(oCNpc::oSDamageDescriptor&)>(&oCNpc::OnDamage),
+        PH_VIRTUAL(0x00730FE0) /* oCNpc::OnDamage(oSDamageDescriptor&) */,
         &oCNpc::PH_OnDamage, UnionCore::Hook_Auto);
     void oCNpc::PH_OnDamage(oSDamageDescriptor& descriptor) {
         BeginDamage(this, descriptor);
@@ -85,7 +89,7 @@ namespace Gothic_I_Classic {
     int oCSpell::PH_Invest() { return InvestTracked(this); }
 
     auto& Ivk_PH_HumanAI = UnionCore::CreateHook(
-        &oCAIHuman::DoAI, &oCAIHuman::PH_DoAI, UnionCore::Hook_Auto);
+        PH_VIRTUAL(0x00615A50) /* oCAIHuman::DoAI */, &oCAIHuman::PH_DoAI, UnionCore::Hook_Auto);
     void oCAIHuman::PH_DoAI(zCVob* vob, int& state) {
         // Hide owned mouse buttons from the player's native AI only
         // (RMB + W jumped in-game; LMB would attack).
@@ -116,7 +120,7 @@ namespace Gothic_I_Classic {
         return THISCALL(Ivk_PH_MagicMode)();
     }
     auto& Ivk_PH_CameraAI = UnionCore::CreateHook(
-        &zCAICamera::DoAI, &zCAICamera::PH_DoAI, UnionCore::Hook_Auto);
+        PH_VIRTUAL(0x0049D6A0) /* zCAICamera::DoAI */, &zCAICamera::PH_DoAI, UnionCore::Hook_Auto);
     void zCAICamera::PH_DoAI(zCVob* vob, int& state) {
         ParryControls::UpdateCamera(this);
         THISCALL(Ivk_PH_CameraAI)(vob, state);
@@ -130,7 +134,7 @@ namespace Gothic_I_Classic {
 
 namespace Gothic_I_Classic {
     auto& Ivk_PH_MouseRight = UnionCore::CreateHook(
-        &zCInput_Win32::GetMouseButtonPressedRight,
+        PH_VIRTUAL(0x004C8C50) /* zCInput_Win32::GetMouseButtonPressedRight */,
         &zCInput_Win32::PH_GetMouseButtonPressedRight, UnionCore::Hook_Auto);
     int zCInput_Win32::PH_GetMouseButtonPressedRight() {
         if (ParryControls::maskNativeRight) return 0;
@@ -138,7 +142,7 @@ namespace Gothic_I_Classic {
     }
 
     auto& Ivk_PH_MouseLeft = UnionCore::CreateHook(
-        &zCInput_Win32::GetMouseButtonPressedLeft,
+        PH_VIRTUAL(0x004C8C30) /* zCInput_Win32::GetMouseButtonPressedLeft */,
         &zCInput_Win32::PH_GetMouseButtonPressedLeft, UnionCore::Hook_Auto);
     int zCInput_Win32::PH_GetMouseButtonPressedLeft() {
         if (ParryControls::maskNativeLeft) return 0;
@@ -146,7 +150,7 @@ namespace Gothic_I_Classic {
     }
 
     auto& Ivk_PH_KeyPressed = UnionCore::CreateHook(
-        &zCInput_Win32::KeyPressed, &zCInput_Win32::PH_KeyPressed, UnionCore::Hook_Auto);
+        PH_VIRTUAL(0x004C87A0) /* zCInput_Win32::KeyPressed */, &zCInput_Win32::PH_KeyPressed, UnionCore::Hook_Auto);
     int zCInput_Win32::PH_KeyPressed(int key) {
         if ((ParryControls::maskNativeRight && key == MOUSE_BUTTONRIGHT) ||
             (ParryControls::maskNativeLeft && key == MOUSE_BUTTONLEFT)) return 0;
@@ -154,7 +158,7 @@ namespace Gothic_I_Classic {
     }
 
     auto& Ivk_PH_KeyToggled = UnionCore::CreateHook(
-        &zCInput_Win32::KeyToggled, &zCInput_Win32::PH_KeyToggled, UnionCore::Hook_Auto);
+        PH_VIRTUAL(0x004C87B0) /* zCInput_Win32::KeyToggled */, &zCInput_Win32::PH_KeyToggled, UnionCore::Hook_Auto);
     int zCInput_Win32::PH_KeyToggled(int key) {
         if ((ParryControls::maskNativeRight && key == MOUSE_BUTTONRIGHT) ||
             (ParryControls::maskNativeLeft && key == MOUSE_BUTTONLEFT)) return 0;
@@ -168,7 +172,7 @@ namespace Gothic_I_Classic {
 // The original right-mouse state stays readable by our aiming code.
 namespace Gothic_I_Classic {
     auto& Ivk_PH_ProcessInputEvents = UnionCore::CreateHook(
-        &zCInput_Win32::ProcessInputEvents,
+        PH_VIRTUAL(0x004C8BA0) /* zCInput_Win32::ProcessInputEvents */,
         &zCInput_Win32::PH_ProcessInputEvents,
         UnionCore::Hook_Auto
     );

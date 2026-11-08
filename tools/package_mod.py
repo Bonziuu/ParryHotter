@@ -26,6 +26,7 @@ from tools.file_transaction import FileTransaction
 from tools.casting_assets import (CASTING_MDS, SUPERSEDED_CASTING_MDS, canonical_casting_mds,
                                   validate_optional_animation_assets)
 from tools.install import PatchError
+from tools.harry_trousers import TrousersError, dress_harry
 
 
 DEFAULT_GAME = Path(r"C:\Programy\Steam\steamapps\common\Gothic")
@@ -146,6 +147,39 @@ def refresh_casting_overlay(game: Path) -> bool:
     return changed
 
 
+def refresh_harry_trousers(game: Path) -> list[Path]:
+    """Dress Harry's bare legs; retire the stale compiled textures."""
+    asc = game / "_work" / "Data" / "Anims" / "PH_HARRY.ASC"
+    textures = game / "_work" / "Data" / "Textures"
+    if not asc.is_file() or asc.is_symlink():
+        return []
+    try:
+        changed = dress_harry(asc, textures)
+    except (TrousersError, ValueError) as exc:
+        # Cosmetic only: an unexpected model layout keeps the converted texture.
+        print(f"Uwaga: pominieto ciemne spodnie Harry'ego ({exc}).")
+        return []
+    except OSError as exc:
+        raise PackagingError(f"Nie udalo sie ubrac nog Harry'ego: {exc}") from exc
+    compiled_dir = textures / "_compiled"
+    stale = []
+    for texture in textures.glob("PH_HARRY_TEX*.TGA"):
+        stem = texture.stem.upper()
+        stale += [path for path in compiled_dir.glob("*") if path.is_file()
+                  and path.name.upper() in (f"{stem}-C.TEX", f"{stem}.TEX")
+                  and (texture in changed or path.stat().st_mtime + 2 < texture.stat().st_mtime)]
+    if stale:
+        retired = compiled_dir / "parryhotter-stale"
+        for index in range(1000):
+            target = retired / str(index)
+            if not target.exists():
+                break
+        target.mkdir(parents=True)
+        for path in stale:
+            shutil.move(str(path), str(target / path.name))
+    return changed
+
+
 def private_harry_assets(game: Path, dat: Path) -> list[tuple[Path, Path]]:
     """Preflight the optional appearance/animation sources before generating files."""
     content = game / "_work" / "Data" / "Scripts" / "Content"
@@ -219,10 +253,13 @@ def build_mod(
             # same G1 format (byte-identical on original Piranha archives).
             compiler = None
     dat, subtitles = validate_compiled(game)
-    if refresh_casting_overlay(game):
+    harry_assets = private_harry_assets(game, dat)
+    # Only after the read-only preflight accepted the private assets.
+    if harry_assets and refresh_casting_overlay(game):
         print("Zaktualizowano PH_HARRY_CAST.MDS (animacje Harry'ego pod nazwami czarow Gothica);"
               " stara kompilacja przeniesiona do Anims\\_compiled\\parryhotter-stale.")
-    harry_assets = private_harry_assets(game, dat)
+    if harry_assets and refresh_harry_trousers(game):
+        print("Harry ma teraz ciemne spodnie pod szata (nogi nie przeswituja jasno).")
     # The mesh is embedded in the user's locally built .mod. Offline
     # procedural fallback ensures the plugin never references a missing wand.
     try:
