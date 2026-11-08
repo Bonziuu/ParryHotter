@@ -293,7 +293,7 @@ namespace {
         gQueuedTarget = target;
         gQueuedSlot = slot;
         gQueuedExpires = ParryHotter::CastLedger::Clock::now() +
-            std::chrono::milliseconds(1500);
+            std::chrono::milliseconds(3000);
         gLog.Line("cast slot=%d QUEUED until castable target=%p", slot,
                   static_cast<void*>(target));
     }
@@ -1063,7 +1063,8 @@ namespace {
             // Optional player overlay supplies the same native transition
             // handles for all six spells, including one-phase Gothic spells.
             // Incomplete/unloaded animation assets keep the native defaults.
-            ParryCasting::Bind(player->human_ai, player->GetModel());
+            const bool bound = ParryCasting::Bind(player->human_ai, player->GetModel());
+            gLog.Line("raise slot=%d harryCastAnims=%d", spellSlot, bound ? 1 : 0);
             player->human_ai->TransitionToInvest();
         }
         gManaPrepared = true;
@@ -1234,23 +1235,29 @@ namespace {
         {
             // Log every change of the casting chain's observable state.
             struct Snapshot {
-                int left, right, aiming, wand, mana, target, slot, body, castAni, request;
+                int left, right, aiming, wand, mana, target, slot, body, castAni, request,
+                    moveOn, owns, jump;
                 bool operator!=(const Snapshot& o) const {
                     return std::memcmp(this, &o, sizeof(*this)) != 0;
                 }
             };
-            static Snapshot last{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+            static Snapshot last{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
             const Snapshot now{left, right, out.aiming, gAiming, gManaPrepared,
                                target, out.selected, player->GetBodyState(),
                                player->human_ai && player->human_ai->IsInCastAni() ? 1 : 0,
-                               gRequestedSpell ? 1 : 0};
+                               gRequestedSpell ? 1 : 0,
+                               ParryControls::enabled ? 1 : 0,
+                               ParryControls::OwnsInput() ? 1 : 0,
+                               ParryControls::GetInput().jumpHeld ? 1 : 0};
             if (now != last || out.cast || out.startAim || out.stopAim) {
                 gLog.Line("frame LMB=%d RMB=%d aim=%d wand=%d manaPrep=%d target=%d(%s) "
-                          "slot=%d body=%d castAni=%d request=%d start=%d stop=%d cast=%d mana=%d",
+                          "slot=%d body=%d castAni=%d request=%d start=%d stop=%d cast=%d mana=%d "
+                          "F11move=%d ownsMove=%d jump=%d",
                           now.left, now.right, now.aiming, now.wand, now.mana, now.target,
                           ParryHotter::AimTargetDescription(gAimTargetState), now.slot,
                           now.body, now.castAni, now.request, out.startAim, out.stopAim,
-                          out.cast, player->GetAttribute(NPC_ATR_MANA));
+                          out.cast, player->GetAttribute(NPC_ATR_MANA),
+                          now.moveOn, now.owns, now.jump);
                 last = now;
             }
         }
@@ -1284,7 +1291,7 @@ namespace {
             if (attempt == CastAttempt::Requested) gLowerAfterCast = true;
             else if (attempt == CastAttempt::NotReady) QueueCast(out.selected, targetNpc);
         }
-        if (out.startAim) { gLowerAfterCast = false; ClearQueuedCast(); }
+        if (out.startAim && !gQueuedTarget) gLowerAfterCast = false;
         if (out.stopAim && !gLowerAfterCast && !gQueuedTarget) {
             LowerWand();
         }
@@ -1303,6 +1310,16 @@ namespace {
                 if (!out.aiming) LowerWand();
             } else {
                 if (book && !gRequestedSpell) { OwnMagicCall own; book->Spell_Invest(); }
+                {
+                    auto* sel = book ? book->GetSelectedSpell() : nullptr;
+                    static int lastStatus = -2;
+                    const int st = sel ? sel->GetSpellStatus() : -1;
+                    if (st != lastStatus) {
+                        gLog.Line("queue spellStatus=%d castAni=%d", st,
+                                  player->human_ai && player->human_ai->IsInCastAni() ? 1 : 0);
+                        lastStatus = st;
+                    }
+                }
                 auto* queued = gQueuedTarget;
                 const int slot = gQueuedSlot;
                 const auto attempt = CastAtNpc(slot, queued);
@@ -1320,7 +1337,9 @@ namespace {
             gLowerAfterCast = false;
             if (!out.aiming) LowerWand();
         }
-        if (out.startAim || (hotkey && out.aiming)) {
+        // A queued tap keeps its raised wand and target; pressing LMB again
+        // must not re-ready the spell (that would discard the investment).
+        if ((out.startAim || (hotkey && out.aiming)) && !gQueuedTarget) {
             RaiseWand(out.selected);
         }
         if (out.aiming && gAiming) {
