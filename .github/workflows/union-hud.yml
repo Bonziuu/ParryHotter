@@ -62,6 +62,33 @@ jobs:
           name: ParryHotter-Union-G1-EXPERIMENTAL
           path: .parryhotter/build/ParryHotterHUD-G1.dll
           if-no-files-found: error
+      - name: Prepare DEV 0.13 branch build for remote installation
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/dev013-handoff'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path 'dev013' -Force | Out-Null
+          Copy-Item '.parryhotter/build/ParryHotterHUD-G1.dll' 'dev013/ParryHotterHUD-G1.dll' -Force
+          $hash = (Get-FileHash 'dev013/ParryHotterHUD-G1.dll' -Algorithm SHA256).Hash.ToLower()
+          "$hash  ParryHotterHUD-G1.dll" | Set-Content -NoNewline -Encoding ascii 'dev013/ParryHotterHUD-G1.dll.sha256'
+      - name: Publish DEV 0.13 branch build (verified PE32 i386, test only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/dev013-handoff'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev013-latest
+          target_commitish: ${{ github.sha }}
+          name: 'Parry Hotter DEV 0.13 - latest branch build (TEST ONLY)'
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          body: |
+            Latest DLL built by MSVC from codex/dev013-handoff, commit ${{ github.sha }}.
+            Verified by tools/verify_dll.py (PE32 i386, PH_BUILD_013 marker).
+            For private testing in Gothic I with Union only; install through
+            the project's .parryhotter/build and ZBUDUJ_MOD_PO_REPARSE.bat.
+          files: |
+            dev013/ParryHotterHUD-G1.dll
+            dev013/ParryHotterHUD-G1.dll.sha256
+          fail_on_unmatched_files: true
       - name: Prepare clearly labeled experimental G1 DLL
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
