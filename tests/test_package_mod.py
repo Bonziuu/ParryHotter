@@ -164,6 +164,20 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("title=Parry Hotter (DEV)", dev)
         self.assertIn("force_parameters=-zreparse", dev)
 
+    def test_builtin_vdf_writer_used_when_modkit_tool_is_missing(self):
+        from tools.vdf import read_vdf
+        self.vdfs.unlink()
+        with mock.patch("tools.package_mod.subprocess.run") as run:
+            result = build_mod(self.game, None, self.hud_dll)
+        run.assert_not_called()
+        archive = read_vdf(result.read_bytes())
+        self.assertIn("SYSTEM/AUTORUN/PARRYHOTTERHUD-G1.DLL", archive)
+        self.assertIn("_WORK/DATA/SCRIPTS/_COMPILED/GOTHIC.DAT", archive)
+        self.assertIn("_WORK/DATA/MESHES/PH_WAND.3DS", archive)
+        self.assertEqual(archive["SYSTEM/AUTORUN/PARRYHOTTERHUD-G1.DLL"], self.hud_dll.read_bytes())
+        play = (self.system / "ParryHotter-PLAY.ini").read_text(encoding="latin-1")
+        self.assertIn("vdf=ParryHotter.mod", play)
+
     def test_missing_dev_profile_is_rejected_before_asset_or_output_changes(self):
         (self.system / "ParryHotter.ini").unlink()
         before = {str(path.relative_to(self.game)): path.read_bytes()

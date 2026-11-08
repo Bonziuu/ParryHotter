@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from tools.vdf import VdfError, write_vdf_from_stage
 from tools.generate_hud_textures import generate as generate_hud_textures
 from tools.download_hud import HudDownloadError, fetch_verified_hud, validate_hud_binary
 from tools.wand_asset import prepare_wand, WandError
@@ -161,9 +162,17 @@ def build_mod(
     with FileTransaction(game) as files:
         files.check_file(ini)
         files.check_file(outfile)
-    compiler = (vdfs_executable or locate_vdfs(game)).expanduser().resolve()
-    if not compiler.is_file():
-        raise PackagingError(f"Nie ma GothicVDFS.exe: {compiler}")
+    if vdfs_executable is not None:
+        compiler = vdfs_executable.expanduser().resolve()
+        if not compiler.is_file():
+            raise PackagingError(f"Nie ma GothicVDFS.exe: {compiler}")
+    else:
+        try:
+            compiler = locate_vdfs(game).expanduser().resolve()
+        except PackagingError:
+            # Steam installs often lack ModKit tools; tools/vdf.py writes the
+            # same G1 format (byte-identical on original Piranha archives).
+            compiler = None
     dat, subtitles = validate_compiled(game)
     harry_assets = private_harry_assets(game, dat)
     # The mesh is embedded in the user's locally built .mod. Offline
@@ -238,6 +247,18 @@ def build_mod(
                 shutil.copy2(source, destination)
                 manifest.append(rel.as_posix())
             print("Added privately converted Harry outfit, model scripts, textures and available casting sources.")
+
+        if compiler is None:
+            result = stage / "ParryHotter.mod"
+            try:
+                write_vdf_from_stage(stage, manifest, result, comment="ParryHotter personal test mod")
+            except (VdfError, OSError) as exc:
+                raise PackagingError(f"Nie udalo sie zapisac .mod: {exc}") from exc
+            print(f"Zbudowano .mod wbudowanym zapisem VDFS ({len(manifest)} plikow), bez GothicVDFS.exe.")
+            with FileTransaction(game) as files:
+                files.copy_file(result, outfile)
+                files.write_bytes(ini, profile)
+            return outfile
 
         vdf_script = stage / "build.vm"
         vdf_script.write_text(

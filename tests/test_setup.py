@@ -90,6 +90,7 @@ class SetupTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(mock.patch("sys.argv", ["setup", "--game", str(self.game), "--model-bundle", str(bundle)]))
             stack.enter_context(mock.patch("tools.setup.install_bundle", return_value=self.system / "GothicStarter_mod.exe"))
+            stack.enter_context(mock.patch("tools.polish_system.install_polish_system", return_value=None))
             stack.enter_context(mock.patch("tools.setup.generate_hud_textures", return_value=[]))
             stack.enter_context(mock.patch("tools.setup.prepare_wand", return_value=False))
             stack.enter_context(mock.patch("tools.setup.configure_mouse", return_value=[]))
