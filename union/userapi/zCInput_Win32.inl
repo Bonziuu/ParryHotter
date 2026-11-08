@@ -5,3 +5,4 @@ int PH_GetMouseButtonPressedRight();
 int PH_GetMouseButtonPressedLeft();
 int PH_KeyPressed(int key);
 int PH_KeyToggled(int key);
+float PH_GetState(unsigned short action);

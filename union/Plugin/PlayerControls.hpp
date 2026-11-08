@@ -151,6 +151,57 @@ inline MouseBindingGuard mouseGuard;
 inline bool maskNativeLeft = false;
 inline bool maskNativeRight = false;
 
+// G1 SetState(action, 0) only clears the forced key-mapping state: GetState
+// still falls back to the physically held keys. Mask movement at its actual
+// read site, only while the player's native AI runs. MagicMode temporarily
+// supplies ACTION+UP without feeding those keys to native locomotion.
+inline bool nativePlayerInput = false;
+inline bool nativeMagicInput = false;
+inline bool nativeCastKeys = false;
+
+struct NativePlayerInputScope {
+    bool previous;
+    explicit NativePlayerInputScope(bool active) : previous(nativePlayerInput) {
+        nativePlayerInput = active;
+    }
+    ~NativePlayerInputScope() { nativePlayerInput = previous; }
+    NativePlayerInputScope(const NativePlayerInputScope&) = delete;
+    NativePlayerInputScope& operator=(const NativePlayerInputScope&) = delete;
+};
+
+struct NativeMagicInputScope {
+    bool previous;
+    explicit NativeMagicInputScope(bool active) : previous(nativeMagicInput) {
+        nativeMagicInput = active;
+    }
+    ~NativeMagicInputScope() { nativeMagicInput = previous; }
+    NativeMagicInputScope(const NativeMagicInputScope&) = delete;
+    NativeMagicInputScope& operator=(const NativeMagicInputScope&) = delete;
+};
+
+inline bool OverrideNativeState(unsigned short action, float& value) {
+    if (nativeMagicInput && (action == GAME_ACTION || action == GAME_UP)) {
+        value = nativeCastKeys ? 1.0f : 0.0f;
+        return true;
+    }
+    if (!nativePlayerInput) return false;
+    switch (action) {
+    case GAME_UP: case GAME_DOWN: case GAME_LEFT: case GAME_RIGHT:
+    case GAME_STRAFELEFT: case GAME_STRAFERIGHT: case GAME_SMOVE: case GAME_SMOVE2:
+        value = 0.0f;
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Native MagicMode also fires automatically at full charge. Keep the ready
+// state hidden from that AI until the LMB release has captured a target.
+// The actual spell status, invested mana and visual effect stay intact.
+inline bool DeferNativeSpellCast(bool prepared, bool requested, int status) {
+    return nativeMagicInput && prepared && !requested && status == SPL_STATUS_CAST;
+}
+
 // Call from every lifecycle hook where the game takes control back.
 inline void ReleaseNativeBindings() { mouseGuard.Release(); }
 
@@ -293,8 +344,8 @@ inline void CaptureInput(zCInput_Win32* controls) {
         if (controls->KeyToggled(keys[i])) { pendingSlot = i + 1; break; }
     }
     input.slotPressed = pendingSlot;
-    // Clear logical actions only. Physical keys/mouse remain readable to the
-    // spell controller; inventory, dialogue and menu key buffers are untouched.
+    // Clear forced logical states. G1 still reads physical bindings when the
+    // forced value is zero; OverrideNativeState masks those during native AI.
     constexpr unsigned short actions[] = {
         GAME_UP, GAME_DOWN, GAME_LEFT, GAME_RIGHT,
         GAME_STRAFELEFT, GAME_STRAFERIGHT, GAME_SMOVE, GAME_SMOVE2
@@ -402,7 +453,7 @@ inline void BeforeHumanAI(oCAIHuman* ai) {
     }
     // grounded was sampled before JumpForward. Do not immediately replace
     // its jump animation, or an invest/cast animation, with a ground command.
-    if (grounded && !jumpStarted && (input.leftHeld || castPose)) {
+    if (grounded && !jumpStarted && !ai->IsInCastAni() && (input.leftHeld || castPose)) {
         // Casting stance: stop the walk animation (Harry still moves).
         if (ai->IsWalking()) ai->_Stand();
     } else if (grounded && !jumpStarted && !ai->IsInCastAni()) {

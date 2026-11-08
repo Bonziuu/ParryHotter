@@ -42,6 +42,7 @@
 #ifdef __G1
 #include "PlayerControls.hpp"
 #include "CastingAnimations.hpp"
+#include "SpellTargeting.hpp"
 using namespace Gothic_I_Classic;
 
 // Custom damage hook has access to the real victim, attacker and spell ID.
@@ -52,6 +53,7 @@ namespace {
     );
     int CastTracked(oCSpell* spell);
     int InvestTracked(oCSpell* spell);
+    bool DeferChargedSpell(oCSpell* spell);
     void LogJumpInput(oCAIHuman* ai);
     void PlaceHp2Camera(zCAICamera* camera);
     void BeginDamage(oCNpc*, const oCNpc::oSDamageDescriptor&);
@@ -65,6 +67,7 @@ namespace {
         ~OwnMagicCall() { --gOwnMagicCall; }
     };
     bool DriveNativeMagic();
+    void LogNativeMagic(oCAIHuman* ai, bool after);
 }
 
 namespace Gothic_I_Classic {
@@ -96,6 +99,13 @@ namespace Gothic_I_Classic {
         &oCSpell::Invest, &oCSpell::PH_Invest, UnionCore::Hook_Auto);
     int oCSpell::PH_Invest() { return InvestTracked(this); }
 
+    auto& Ivk_PH_SpellStatus = UnionCore::CreateHook(
+        &oCSpell::GetSpellStatus, &oCSpell::PH_GetSpellStatus, UnionCore::Hook_Auto);
+    int oCSpell::PH_GetSpellStatus() {
+        if (DeferChargedSpell(this)) return SPL_STATUS_CANINVEST;
+        return THISCALL(Ivk_PH_SpellStatus)();
+    }
+
     auto& Ivk_PH_HumanAI = UnionCore::CreateHook(
         PH_VIRTUAL(0x00615A50) /* oCAIHuman::DoAI */, &oCAIHuman::PH_DoAI, UnionCore::Hook_Auto);
     void oCAIHuman::PH_DoAI(zCVob* vob, int& state) {
@@ -110,11 +120,21 @@ namespace Gothic_I_Classic {
         if (this->npc && this->npc == player) LogJumpInput(this);
         const bool driving = own && DriveNativeMagic();
         ParryControls::BeforeHumanAI(this);
-        if (driving) {
-            OwnMagicCall nativeMagic;
-            THISCALL(Ivk_PH_HumanAI)(vob, state);
-        } else {
-            THISCALL(Ivk_PH_HumanAI)(vob, state);
+        // F11 restores native movement, but native magic still cannot invest
+        // while walking. Give it a stationary animation during this request.
+        if (driving && !ParryControls::OwnsInput() && !IsInCastAni() && IsWalking())
+            _Stand();
+        {
+            ParryControls::NativePlayerInputScope movementInput(
+                own && (ParryControls::OwnsInput() || driving));
+            // A nested NPC AI must not inherit the player's synthetic spell keys.
+            ParryControls::NativeMagicInputScope outsideMagic(false);
+            if (driving) {
+                OwnMagicCall nativeMagic;
+                THISCALL(Ivk_PH_HumanAI)(vob, state);
+            } else {
+                THISCALL(Ivk_PH_HumanAI)(vob, state);
+            }
         }
         ParryControls::AfterHumanAI(this);
         ParryControls::maskNativeLeft = ParryControls::maskNativeRight = false;
@@ -129,13 +149,18 @@ namespace Gothic_I_Classic {
     auto& Ivk_PH_MagicMode = UnionCore::CreateHook(
         &oCAIHuman::MagicMode, &oCAIHuman::PH_MagicMode, UnionCore::Hook_Auto);
     int oCAIHuman::PH_MagicMode() {
-        // Invest/cast are driven exactly once by our hold-LMB/release controller.
-        // While a cast request is pending the native magic AI must run: it
-        // turns the shoot animation into the actual oCSpell::Cast. LMB is
-        // masked during the player's DoAI, so it cannot start a new invest.
-        // Driven through logical keys (DriveNativeMagic); never blocked.
-        (void)&OwnsMagicInput;
-        return THISCALL(Ivk_PH_MagicMode)();
+        // Only MagicMode sees synthetic ACTION+UP. The rest of native player
+        // DoAI sees zero movement, so it cannot replace the cast with a run.
+        const bool own = npc == player && ParryControls::ContextAvailable();
+        ParryControls::NativePlayerInputScope movementInput(
+            own && ParryControls::nativePlayerInput);
+        ParryControls::NativeMagicInputScope magicInput(own);
+        auto* book = own && OwnsMagicInput() ? player->GetSpellBook() : nullptr;
+        ParryTargeting::Scope targeting(book ? book->GetSelectedSpell() : nullptr);
+        LogNativeMagic(this, false);
+        const int result = THISCALL(Ivk_PH_MagicMode)();
+        LogNativeMagic(this, true);
+        return result;
     }
     auto& Ivk_PH_CameraAI = UnionCore::CreateHook(
         PH_VIRTUAL(0x0049D6A0) /* zCAICamera::DoAI */, &zCAICamera::PH_DoAI, UnionCore::Hook_Auto);
@@ -152,6 +177,15 @@ namespace Gothic_I_Classic {
 }
 
 namespace Gothic_I_Classic {
+    auto& Ivk_PH_InputState = UnionCore::CreateHook(
+        PH_VIRTUAL(0x004C8310) /* zCInput_Win32::GetState */,
+        &zCInput_Win32::PH_GetState, UnionCore::Hook_Auto);
+    float zCInput_Win32::PH_GetState(unsigned short action) {
+        float value = 0.0f;
+        if (ParryControls::OverrideNativeState(action, value)) return value;
+        return THISCALL(Ivk_PH_InputState)(action);
+    }
+
     auto& Ivk_PH_MouseRight = UnionCore::CreateHook(
         PH_VIRTUAL(0x004C8C50) /* zCInput_Win32::GetMouseButtonPressedRight */,
         &zCInput_Win32::PH_GetMouseButtonPressedRight, UnionCore::Hook_Auto);
@@ -239,13 +273,10 @@ namespace {
 
     // Native cast keys are held while LMB charges an invest spell at a target.
     bool gChargeKeys = false;
-    bool gNativeKeysDown = false;
+    bool& gNativeKeysDown = ParryControls::nativeCastKeys;
     void SetNativeCastKeys(bool down) {
-        if (!zinput) return;
-        if (down || gNativeKeysDown) {
-            zinput->SetState(GAME_ACTION, down ? 1 : 0);
-            zinput->SetState(GAME_UP, down ? 1 : 0);
-        }
+        // Read by the scoped GetState hook inside player MagicMode only.
+        // Forcing the mappings here also exposed UP to native locomotion.
         gNativeKeysDown = down;
     }
     constexpr std::array<int, ParryHotter::kSpellCount> kHotkeys{{
@@ -277,25 +308,28 @@ namespace {
     bool gLowerAfterCast = false;
     enum class CastAttempt { Refused, Requested, NotReady };
 
-    // Depth of the plugin's own Spell_Invest/Spell_Cast calls. In the first
+    // Depth of the plugin's own/native-driven investment calls. In the first
     // recorded session Gothic invested and launched the player's Thunderball
     // twice on its own while LMB was held at a wall (no plugin request),
-    // provoking the gate guards. Outside this scope the player's spells
-    // neither invest nor cast while the plugin owns magic input.
+    // provoking the gate guards. Investment needs this scope; launching
+    // always needs a matching release request, including inside this scope.
 
     bool BlocksForeignPlayerMagic(oCSpell* spell) {
         return spell && player && spell->spellCasterNpc == player &&
-               gOwnMagicCall == 0 && ParryControls::ContextAvailable();
+               ParryControls::ContextAvailable();
     }
 
     int InvestTracked(oCSpell* spell) {
-        if (BlocksForeignPlayerMagic(spell)) {
+        if (gOwnMagicCall == 0 && BlocksForeignPlayerMagic(spell)) {
             static int blocked = 0;
             if (++blocked <= 20 || blocked % 200 == 0)
                 gLog.Line("native INVEST blocked spellId=%d (count=%d)",
                           spell->GetSpellID(), blocked);
             return spell->GetSpellStatus();
         }
+        // Already fully charged: keep the effect/mana until release, without
+        // repeatedly running the native investment or consuming more mana.
+        if (DeferChargedSpell(spell)) return 1;
         return (spell->*Gothic_I_Classic::Ivk_PH_Invest)();
     }
 
@@ -481,20 +515,25 @@ namespace {
     }
 
     int CastTracked(oCSpell* spell) {
-        if (spell != gRequestedSpell && BlocksForeignPlayerMagic(spell)) {
-            gLog.Line("native CAST blocked spellId=%d (no plugin request)", spell->GetSpellID());
-            return 0;
-        }
         const bool ours = spell && spell == gRequestedSpell && spell->spellCasterNpc == player &&
             gRequestedTarget && gRequestedSlot >= 0 &&
             gRequestedSlot < ParryHotter::kSpellCount &&
             spell->GetSpellID() == kGothicSpellIds[gRequestedSlot];
+        // Investing is permitted inside native AI; launching a projectile
+        // still requires a matching release request, even in that scope.
+        if (!ours && BlocksForeignPlayerMagic(spell)) {
+            gLog.Line("native CAST blocked spellId=%d spell=%p request=%p (no matching request)",
+                      spell->GetSpellID(), static_cast<void*>(spell),
+                      static_cast<void*>(gRequestedSpell));
+            return 0;
+        }
         const auto generation = gRequestGeneration;
         const int slot = gRequestedSlot;
         auto* target = ours ? gRequestedTarget : nullptr;
         // Native Cast runs scripts and damage hooks. Those callbacks can cancel
         // or replace the request; retain the objects and identify this request.
         if (ours) { spell->AddRef(); target->AddRef(); }
+        ParryTargeting::Scope targeting(ours ? spell : nullptr);
         const auto sameRequest = [&] {
             return generation == gRequestGeneration && spell == gRequestedSpell;
         };
@@ -802,11 +841,39 @@ namespace {
     bool OwnsMagicInput() { return gAiming && ParryControls::ContextAvailable(); }
     bool CastRequestPending() { return gRequestedSpell != nullptr; }
 
+    bool DeferChargedSpell(oCSpell* spell) {
+        return spell && ParryControls::DeferNativeSpellCast(
+            gManaPrepared && OwnsMagicInput() && spell->spellCasterNpc == player,
+            gRequestedSpell != nullptr, spell->spellStatus);
+    }
+
+    void LogNativeMagic(oCAIHuman* ai, bool after) {
+        if (!ai || ai->npc != player || !zinput || (!gAiming && !gRequestedSpell)) return;
+        auto* book = player->GetSpellBook();
+        auto* spell = book ? book->GetSelectedSpell() : nullptr;
+        if (!spell) return;
+        const std::array<int, 10> state{{spell->GetSpellID(), spell->GetSpellStatus(),
+            spell->manaInvested, zinput->GetState(GAME_ACTION) != 0.0f,
+            zinput->GetState(GAME_UP) != 0.0f, ai->IsWalking(), ai->IsInCastAni(),
+            ai->wmode, ai->spellReleased, spell->spellStatus}};
+        static std::array<std::array<int, 10>, 2> last{};
+        static std::array<std::uint64_t, 2> generation{{~std::uint64_t(0), ~std::uint64_t(0)}};
+        const int phase = after ? 1 : 0;
+        if (state == last[phase] && generation[phase] == gRequestGeneration) return;
+        last[phase] = state;
+        generation[phase] = gRequestGeneration;
+        gLog.Line("magic %s spellId=%d status=%d invested=%d action=%d up=%d "
+                  "walking=%d castAni=%d wmode=%d released=%d rawStatus=%d request=%p",
+                  after ? "after" : "before", state[0], state[1], state[2],
+                  state[3], state[4], state[5], state[6], state[7], state[8], state[9],
+                  static_cast<void*>(gRequestedSpell));
+    }
+
     // Gothic I's own magic AI (oCAIHuman::MagicMode) invests while ACTION and
     // UP are both pressed and fires on their release; it then plays the
     // shoot animation and casts at the focus. LMB is not bound to ACTION while
-    // we own input, so these logical keys are driven only from here, right
-    // before the player's native AI step. Returns true while driving.
+    // we own input. Set the keys here, but expose them via GetState only
+    // inside the player's MagicMode. Returns true while driving.
     bool DriveNativeMagic() {
         if (!gAiming || !player) {
             SetNativeCastKeys(false);
@@ -818,8 +885,6 @@ namespace {
             const int status = gRequestedSpell->GetSpellStatus();
             const bool instant = gRequestedSlot >= 0 &&
                 gRequestedSlot < ParryHotter::kSpellCount && kInstantSpell[gRequestedSlot];
-            // Instant spells fire while the keys are down; invest spells fire
-            // on release, which needs at least one invested mana point.
             // Gothic fires on key release once it may: instant spells after
             // the status reached CAST, invest spells after >= 1 mana point.
             hold = !gCastConfirmed &&
@@ -1022,6 +1087,7 @@ namespace {
                 spell, ParryHotter::SpellCooldown::Clock::now())) {
             auto* book = player ? player->GetSpellBook() : nullptr;
             auto* prepared = book ? book->GetSelectedSpell() : nullptr;
+            ParryTargeting::Scope targeting(prepared);
             if (!prepared || prepared->GetSpellID() != kGothicSpellIds[spell] ||
                 !prepared->GetEnabled() || !prepared->IsValidTarget(npc) ||
                 prepared->GetSpellStatus() == SPL_STATUS_STOP) {
@@ -1115,7 +1181,7 @@ namespace {
 
     bool InSpellRange(oCNpc* npc) {
         const float distance = player->GetDistanceToVob(*npc);
-        return distance >= 0.0f && distance < 1900.0f;
+        return distance >= 0.0f && distance < float(ParryTargeting::kRangeCm);
     }
 
     // HP2 cursor snap: the living NPC nearest the screen centre inside an
@@ -1171,7 +1237,7 @@ namespace {
         direction.Normalize();
         const zVEC3 eye = cameraVob->GetPositionWorld();
         zVEC3 ray = direction;
-        ray *= zVEC3(1900.0f);
+        ray *= zVEC3(float(ParryTargeting::kRangeCm));
         // Nearest hit (no FIRSTHIT): any first-found far polygon must not
         // hide an NPC standing right under the dot.
         const int flags = zTRACERAY_VOB_BBOX | zTRACERAY_STAT_POLY |
@@ -1208,6 +1274,8 @@ namespace {
             return;
         }
         ReleaseCastRequest();
+        gChargeKeys = false;
+        SetNativeCastKeys(false);
         const int mana = player->GetAttribute(NPC_ATR_MANA);
         const auto now = ParryHotter::SpellCooldown::Clock::now();
         if (gAiming) {
@@ -1227,6 +1295,10 @@ namespace {
             return;
         }
         const int id = kGothicSpellIds[spellSlot];
+        // Stop locomotion before starting the prepare animation, never by
+        // replacing an already active invest/shoot animation every AI step.
+        if (player->human_ai && player->human_ai->IsWalking() &&
+            !player->human_ai->IsInCastAni()) player->human_ai->_Stand();
         // ReadySpell returns an undocumented integer in Gothic 1. Never
         // assume 0 means failure; native Spell_Cast performs the final check.
         player->ReadySpell(id, 0);
@@ -1318,12 +1390,16 @@ namespace {
             return CastAttempt::Refused;
         }
         auto* spell = spellbook->GetSelectedSpell();
+        // Native target angles are relative to Harry, not the free camera.
+        // Keep native LOS/type rules, but use the same range as the reticle.
+        ParryTargeting::Scope targeting(spell);
+        const int validTarget = spell ? spell->IsValidTarget(target) : -1;
         if (!spell || spell->GetSpellID() != kGothicSpellIds[slot] ||
-            !spell->GetEnabled() || !spell->IsValidTarget(target)) {
-            gLog.Line("cast slot=%d REFUSED spell=%d id=%d want=%d enabled=%d validTarget=%d",
+            !spell->GetEnabled() || !validTarget) {
+            gLog.Line("cast slot=%d REFUSED spell=%d id=%d want=%d enabled=%d validTarget=%d target=%p",
                       slot, spell ? 1 : 0, spell ? spell->GetSpellID() : -1,
                       kGothicSpellIds[slot], spell ? spell->GetEnabled() : -1,
-                      spell ? spell->IsValidTarget(target) : -1);
+                      validTarget, static_cast<void*>(target));
             return CastAttempt::Refused;
         }
         const int status = spell->GetSpellStatus();
@@ -1442,7 +1518,19 @@ namespace {
         const auto now = ParryHotter::SpellCooldown::Clock::now();
         UpdateFlight(now);
         ReapCasts();
-        if (gRequestedSpell && now >= gRequestExpires) LowerWand();
+        if (gRequestedSpell && now >= gRequestExpires) {
+            gLog.Line("cast slot=%d TIMEOUT status=%d invested=%d", gRequestedSlot,
+                      gRequestedSpell->GetSpellStatus(), gRequestedSpell->manaInvested);
+            LowerWand();
+        }
+        if (gRequestedSpell && (gRequestedSpell->manaInvested < 0 ||
+            gRequestedSpell->GetSpellStatus() == SPL_STATUS_STOP)) {
+            // Native Stop marks the spell CANINVEST with manaInvested=-1
+            // and removes its effect. Further key presses cannot revive it.
+            gLog.Line("cast slot=%d CANCELLED by engine status=%d invested=%d", gRequestedSlot,
+                      gRequestedSpell->GetSpellStatus(), gRequestedSpell->manaInvested);
+            LowerWand();
+        }
         KeepHarryAppearance();
         const int mana = player->GetAttribute(NPC_ATR_MANA);
         ShowHud();
@@ -1538,14 +1626,17 @@ namespace {
         if (!gAiming) gChargeKeys = false;
         if (gRequestedSpell) {
             static int lastStatus = -2, lastInvested = -1;
+            static std::uint64_t lastGeneration = ~std::uint64_t(0);
             const int status = gRequestedSpell->GetSpellStatus();
-            if (status != lastStatus || (gRequestedSpell->manaInvested > 0) != (lastInvested > 0)) {
+            if (lastGeneration != gRequestGeneration || status != lastStatus ||
+                (gRequestedSpell->manaInvested > 0) != (lastInvested > 0)) {
                 gLog.Line("cast slot=%d native status=%d invested=%d keys=%d castAni=%d",
                           gRequestedSlot, status, gRequestedSpell->manaInvested,
                           gNativeKeysDown ? 1 : 0,
                           player->human_ai && player->human_ai->IsInCastAni() ? 1 : 0);
                 lastStatus = status;
                 lastInvested = gRequestedSpell->manaInvested;
+                lastGeneration = gRequestGeneration;
             }
         }
     }
@@ -1557,6 +1648,7 @@ cexport const char* ParryHotter_BuildId() {
 }
 cexport void Game_Entry() {}
 cexport void Game_Init() {
+    gLog.Line("build PH_CAST_INPUT_SCOPED_GETSTATE_V1");
     ParryControls::Reset();
     ParryCasting::Forget();
     gTelemetry.Reset();

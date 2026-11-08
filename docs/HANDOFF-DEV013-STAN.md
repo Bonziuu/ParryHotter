@@ -84,10 +84,8 @@ dziennika (szukaj linii `charge`, `cast ... REQUEST`, `native status=`,
 
 ## Znane problemy i TODO
 
-1. **Przetestować `fca61b4`** (rzucanie). Jeśli `engine Cast` się nie pojawi,
-   sprawdzić, czy wiadomość czaru z EventManagera nie jest blokowana przez
-   `BlocksForeignPlayerMagic` (Cast hook przepuszcza tylko
-   `spell == gRequestedSpell`).
+1. **Potwierdzić w grze poprawkę po logu `b25528b`** opisaną niżej. Testy
+   przenośne i build DLL nie potwierdzają jeszcze wystrzału w ZenGin.
 2. **Berzerk**: `IsValidTarget` zwraca 0 dla strażnika. To może być reguła
    czaru, do sprawdzenia.
 3. **Konsola Gothica (F2, Marvin)**: przy otwartej konsoli plugin dalej czyta
@@ -105,6 +103,57 @@ dziennika (szukaj linii `charge`, `cast ... REQUEST`, `native status=`,
    (rozbrojenie), Bumbardo, Avada, a także ragdoll i fizyka.
 8. **Dokumentacja i finalna paczka** z instrukcją po polsku. Decyzja o merge
    do `main` należy do użytkownika.
+
+## Analiza przesłanego logu `b25528b` i poprawka wejścia
+
+Log zawiera siedem `REQUEST`: slot 0 dwa razy, slot 1 dwa razy, slot 2 raz
+i slot 3 dwa razy (numeracja logu jest od zera). Nie ma ani jednego `engine Cast`
+ani `native CAST blocked`. Slot 0 przy 22.674 s miał `status=1 invested=1`,
+a przy 22.676 s `status=2 keys=0`, lecz `castAni=0`; żądanie wygasło po 4 s.
+Slot 2 przy 96.485 s miał `invested=-1`, co oznacza anulowanie przez natywne
+`oCSpell::Stop`, nie stan gotowości czaru natychmiastowego. Dla slotów 4 i 5
+wszystkie próby miały `target=0`, więc log nie weryfikuje rzutu tych czarów na NPC.
+
+Disasemblacja GothicMod.exe 1.08k potwierdziła:
+
+- `zCInput_Win32::SetState` @ `0x004C83E0` ustawia `zSKeyMapping::set`.
+  Wartość zero usuwa wymuszenie, ale `GetState` @ `0x004C8310` nadal czyta
+  fizyczne klawisze. Zatem czyszczenie `GAME_UP` nie blokowało trzymanego W.
+- `MagicCheckSpellStates` wymaga aktywnej animacji `s_shoot`, aby wywołać
+  `Spell_Cast`. Natywny bieg i `_Stand` mogły zastępować tę animację.
+- `IsValidTarget` @ `0x0047DD80` sprawdza kąty względem bohatera, własny zasięg
+  czaru i LOS. Kropka kamery może więc wskazywać NPC poza natywnym stożkiem.
+
+Poprawka hookuje wirtualne `GetState` po adresie przez `PH_VIRTUAL`. Tylko
+w obrębie natywnego AI gracza maskuje akcje ruchowe adaptera, a tylko w obrębie
+jego `MagicMode` podaje syntetyczne ACTION+UP. Poza tymi zakresami oraz dla NPC
+wejście pozostaje natywne. W trybie F11 natywny ruch jest wstrzymywany na czas
+ładowania/żądania. Aktywne animacje przygotowania i rzutu są chronione przed
+`_Stand`; flaga ładowania jest zerowana przy zmianie czaru. Sam wystrzał zawsze
+wymaga zgodnego żądania puszczenia LPM, również wewnątrz własnego wywołania AI.
+Przy pełnym naładowaniu getter statusu pokazuje natywnemu `MagicMode` stan
+`CANINVEST` do czasu żądania rzutu; rzeczywisty status `CAST`, mana i efekt nie
+są zmieniane. Kolejne inwestowanie jest wtedy wstrzymane. Zapobiega to
+automatycznemu przejściu do shoot i skonsumowaniu czaru podczas trzymania LPM.
+
+`SpellTargeting.hpp` na czas sprawdzania/obsługi własnego czaru ustawia zasięg
+1900 cm i pełne kąty. Zachowuje natywne filtry typu celu oraz LOS. Parametry są
+przywracane przed zwolnieniem referencji; nie zmienia czarów NPC ani skryptów gry.
+
+Nowa DLL zapisuje `build PH_CAST_INPUT_SCOPED_GETSTATE_V1`, zmiany `magic before`
+i `magic after` z rzeczywistymi odczytami ACTION/UP, stanem animacji i broni.
+Anulowanie przez silnik ma osobny wpis `CANCELLED by engine`, a przekroczenie
+czasu `TIMEOUT`. Każde nowe żądanie zapisuje początkowe `native status`.
+
+Po podmianie DLL przetestować wszystkie sześć czarów: stojąc, przy trzymanym W,
+po zmianie czaru podczas LPM i po obrocie kamery; osobno puścić LPM bez celu.
+Oczekiwane potwierdzenie to `engine Cast ... result!=0 sameRequest=1` oraz
+rzeczywisty efekt na namierzonym NPC. Nadal potrzebny jest nowy log z gry.
+
+Binarka do analizy pozostała poza repozytorium. Źródło: PlayerKit w
+`PhoenixTales/gothic-devkit`, commit `0b81c1932d11fd212c877cb8fd4e4a85ab2584de`,
+obiekt Git `a22a2f21877f8f1ecf11f9878f21a7c142b73566`; SHA-256:
+`af5859155fcde73a2923f3db4ce608f77f5e998413a305d462c44e80c76de1e0`.
 
 ## Jak testować u użytkownika
 
