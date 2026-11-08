@@ -32,6 +32,9 @@ struct InputSnapshot {
 inline InputSnapshot input;
 inline bool enabled = true;
 inline bool ownsInput = false;
+// Set by the spell code while Gothic's magic AI invests or casts: it does
+// nothing while the caster's walk animation runs.
+inline bool castPose = false;
 // The engine input hook may not run during gameplay, so the player's DoAI
 // captures input when no capture happened since its previous call. Exactly
 // one capture per player AI step: a second one would find the number-key
@@ -399,7 +402,10 @@ inline void BeforeHumanAI(oCAIHuman* ai) {
     }
     // grounded was sampled before JumpForward. Do not immediately replace
     // its jump animation, or an invest/cast animation, with a ground command.
-    if (grounded && !jumpStarted && !input.leftHeld && !ai->IsInCastAni()) {
+    if (grounded && !jumpStarted && (input.leftHeld || castPose)) {
+        // Casting stance: stop the walk animation (Harry still moves).
+        if (ai->IsWalking()) ai->_Stand();
+    } else if (grounded && !jumpStarted && !ai->IsInCastAni()) {
         // Harry keeps facing the camera; the animation follows the key
         // direction (run, run backwards, strafe) instead of a moonwalk.
         if (std::fabs(input.forward) >= std::fabs(input.right) && input.forward > 0.0f)

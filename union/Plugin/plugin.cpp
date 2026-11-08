@@ -810,6 +810,7 @@ namespace {
     bool DriveNativeMagic() {
         if (!gAiming || !player) {
             SetNativeCastKeys(false);
+            ParryControls::castPose = false;
             return false;
         }
         bool hold = gChargeKeys;
@@ -819,9 +820,12 @@ namespace {
                 gRequestedSlot < ParryHotter::kSpellCount && kInstantSpell[gRequestedSlot];
             // Instant spells fire while the keys are down; invest spells fire
             // on release, which needs at least one invested mana point.
-            hold = instant ? !gCastConfirmed
-                           : (status == SPL_STATUS_DONTINVEST ||
-                              gRequestedSpell->manaInvested <= 0);
+            // Gothic fires on key release once it may: instant spells after
+            // the status reached CAST, invest spells after >= 1 mana point.
+            hold = !gCastConfirmed &&
+                   (status == SPL_STATUS_DONTINVEST ||
+                    (instant ? status != SPL_STATUS_CAST
+                             : gRequestedSpell->manaInvested <= 0));
             if (gRequestedTarget) {
                 player->SetFocusVob(static_cast<zCVob*>(gRequestedTarget));
                 gRequestedSpell->spellTarget = gRequestedTarget;
@@ -829,6 +833,8 @@ namespace {
             }
         }
         SetNativeCastKeys(hold);
+        // Gothic invests only while the caster is not walking.
+        ParryControls::castPose = hold || gRequestedSpell != nullptr;
         return hold || gRequestedSpell;
     }
     void NotifyCastResult(int slot, bool success) {
@@ -1458,8 +1464,9 @@ namespace {
             if (attempt == CastAttempt::Requested) gLowerAfterCast = true;
             else if (attempt == CastAttempt::NotReady) QueueCast(out.selected, targetNpc);
         }
-        if (out.startAim && !gQueuedTarget) gLowerAfterCast = false;
-        if (out.stopAim && !gLowerAfterCast && !gQueuedTarget) {
+        // A new press while a cast is still flying out must not cancel it.
+        if (out.startAim && !gQueuedTarget && !gRequestedSpell) gLowerAfterCast = false;
+        if (out.stopAim && !gLowerAfterCast && !gQueuedTarget && !gRequestedSpell) {
             LowerWand();
         }
         if (gQueuedTarget) {
