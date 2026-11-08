@@ -46,7 +46,12 @@ private:
         if (file_) return true;
         if (opened_) return false; // never reopen (and truncate) mid-session
         opened_ = true;
+#if defined(_MSC_VER)
+        // MSVC (SDL checks) rejects fopen as C4996; fopen_s is equivalent.
+        if (fopen_s(&file_, path_, "w") != 0) file_ = nullptr;
+#else
         file_ = std::fopen(path_, "w");
+#endif
         start_ = std::chrono::steady_clock::now();
         return file_ != nullptr;
     }
