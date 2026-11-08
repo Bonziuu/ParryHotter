@@ -124,14 +124,16 @@ def selected_border(img):
 
 
 def crosshair():
+    # HP2-style centre dot: a soft white dot with a thin dark rim, large
+    # enough to stay visible at 1080p (the sprite is ~35 px on screen).
     canvas = blank()
-    for y in range(28, 37):
-        for x in range(28, 37):
-            dist = math.hypot(x - 32, y - 32)
-            if dist <= 3.6:
-                color_pixel(canvas, x, y, (5, 9, 17), 160)
-            if dist <= 1.35:
-                color_pixel(canvas, x, y, (231, 236, 226), 235)
+    for y in range(20, 45):
+        for x in range(20, 45):
+            dist = math.hypot(x + 0.5 - 32, y + 0.5 - 32)
+            if dist <= 7.5:
+                color_pixel(canvas, x, y, (5, 9, 17), 170)
+            if dist <= 5.0:
+                color_pixel(canvas, x, y, (240, 244, 236), 245)
     return canvas
 
 

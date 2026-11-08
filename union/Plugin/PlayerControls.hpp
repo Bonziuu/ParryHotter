@@ -50,7 +50,15 @@ inline float initialCameraYaw = 0.0f;
 inline float initialCameraPitch = 0.0f;
 inline float initialPlayerYaw = 0.0f;
 inline float currentCameraYaw = 0.0f;
+inline float currentCameraPitch = 0.0f; // degrees, positive looks up
 inline bool mouseConsumed = false;
+// Gothic polls DirectInput in every ProcessInputEvents call (thousands per
+// second here): each poll resets the mouse delta and the key-toggle table.
+// Mouse movement is therefore summed over polls until the camera uses it,
+// and a number key stays latched until the spell HUD consumes it.
+inline float pendingMouseX = 0.0f;
+inline float pendingMouseY = 0.0f;
+inline int pendingSlot = 0;
 inline oCAIHuman* movingAI = nullptr;
 inline zCModel* scaledModel = nullptr;
 inline float savedScaleX = 1.0f;
@@ -199,6 +207,8 @@ inline void Disable() {
     requireJumpRelease = true;
     ownsInput = false;
     mouseConsumed = false;
+    pendingMouseX = pendingMouseY = 0.0f;
+    pendingSlot = 0;
 }
 
 // World load hooks must call Forget before freeing the old world if they
@@ -213,11 +223,20 @@ inline void Forget() {
     input = {};
     planarX = planarZ = nativeJumpBuffer = 0.0f;
     previousJump = ownsInput = mouseConsumed = false;
+    pendingMouseX = pendingMouseY = 0.0f;
+    pendingSlot = 0;
     requireJumpRelease = true;
 }
 
 inline void Reset() { Disable(); enabled = true; }
 inline const InputSnapshot& GetInput() { return input; }
+// The spell HUD takes a latched number key exactly once.
+inline int ConsumeSlotPressed() {
+    const int slot = pendingSlot;
+    pendingSlot = 0;
+    input.slotPressed = 0;
+    return slot;
+}
 inline bool OwnsInput() { return ownsInput && Available(); }
 
 inline void CaptureInput(zCInput_Win32* controls) {
@@ -251,13 +270,20 @@ inline void CaptureInput(zCInput_Win32* controls) {
                      controls->GetMouseButtonPressedRight() != 0;
     input.rightHeld = controls->GetMouseButtonPressedRight() != 0;
     input.leftHeld = controls->GetMouseButtonPressedLeft() != 0;
-    float wheel = 0.0f;
-    controls->GetMousePos(input.mouseX, input.mouseY, wheel);
+    float wheel = 0.0f, mouseX = 0.0f, mouseY = 0.0f;
+    controls->GetMousePos(mouseX, mouseY, wheel);
+    if (std::isfinite(mouseX) && std::isfinite(mouseY)) {
+        pendingMouseX = std::clamp(pendingMouseX + mouseX, -4000.0f, 4000.0f);
+        pendingMouseY = std::clamp(pendingMouseY + mouseY, -4000.0f, 4000.0f);
+    }
+    input.mouseX = pendingMouseX;
+    input.mouseY = pendingMouseY;
     constexpr int keys[] = {KEY_1, KEY_2, KEY_3, KEY_4, KEY_5,
                             KEY_6, KEY_7, KEY_8, KEY_9, KEY_0};
     for (int i = 0; i < 10; ++i) {
-        if (controls->KeyToggled(keys[i])) { input.slotPressed = i + 1; break; }
+        if (controls->KeyToggled(keys[i])) { pendingSlot = i + 1; break; }
     }
+    input.slotPressed = pendingSlot;
     // Clear logical actions only. Physical keys/mouse remain readable to the
     // spell controller; inventory, dialogue and menu key buffers are untouched.
     constexpr unsigned short actions[] = {
@@ -293,7 +319,9 @@ inline void UpdateCamera(zCAICamera* camera) {
         initialCameraYaw, initialCameraPitch,
         (input.forward != 0.0f || input.right != 0.0f) && !input.leftHeld});
     mouseConsumed = true;
+    pendingMouseX = pendingMouseY = 0.0f;
     currentCameraYaw = view.yawDegrees;
+    currentCameraPitch = view.pitchDegrees;
     // Offset changes steer the native collision-aware orbit rather than
     // teleporting the camera VOB or disabling its path/obstacle handling.
     camera->rotOffsetY = savedOffsetY +
@@ -308,6 +336,17 @@ inline void CaptureIfMissed(zCInput_Win32* controls) {
         CaptureInput(controls);
     }
     capturedSinceAI = false;
+}
+
+// Gothic's strafe is a one-shot step animation: restart it only after the
+// previous step ended, never every frame.
+inline void Strafe(oCAIHuman* ai, bool right) {
+    zCModel* model = player ? player->GetModel() : nullptr;
+    const int id = right ? ai->_t_strafer : ai->_t_strafel;
+    zCModelAni* animation = model && id >= 0 ? model->GetAniFromAniID(id) : nullptr;
+    if (animation && model->IsAniActive(animation)) return;
+    if (right) ai->StrafeRight();
+    else ai->StrafeLeft();
 }
 
 inline void BeforeHumanAI(oCAIHuman* ai) {
@@ -345,7 +384,13 @@ inline void BeforeHumanAI(oCAIHuman* ai) {
     // grounded was sampled before JumpForward. Do not immediately replace
     // its jump animation, or an invest/cast animation, with a ground command.
     if (grounded && !jumpStarted && !input.leftHeld && !ai->IsInCastAni()) {
-        if (std::hypot(input.forward, input.right) > 0.001f) ai->PC_GoForward();
+        // Harry keeps facing the camera; the animation follows the key
+        // direction (run, run backwards, strafe) instead of a moonwalk.
+        if (std::fabs(input.forward) >= std::fabs(input.right) && input.forward > 0.0f)
+            ai->PC_GoForward();
+        else if (std::fabs(input.forward) >= std::fabs(input.right) && input.forward < 0.0f)
+            ai->PC_GoBackward();
+        else if (input.right != 0.0f) Strafe(ai, input.right > 0.0f);
         else if (!ai->IsStanding()) ai->_Stand();
     }
     movingAI = ai;

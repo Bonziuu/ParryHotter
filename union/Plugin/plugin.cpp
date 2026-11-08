@@ -53,10 +53,12 @@ namespace {
     int CastTracked(oCSpell* spell);
     int InvestTracked(oCSpell* spell);
     void LogJumpInput(oCAIHuman* ai);
+    void PlaceHp2Camera(zCAICamera* camera);
     void BeginDamage(oCNpc*, const oCNpc::oSDamageDescriptor&);
     void EndDamage();
     void NotifyCastResult(int slot, bool success);
     bool OwnsMagicInput();
+    bool CastRequestPending();
 }
 
 namespace Gothic_I_Classic {
@@ -116,7 +118,10 @@ namespace Gothic_I_Classic {
         &oCAIHuman::MagicMode, &oCAIHuman::PH_MagicMode, UnionCore::Hook_Auto);
     int oCAIHuman::PH_MagicMode() {
         // Invest/cast are driven exactly once by our hold-LMB/release controller.
-        if (npc == player && OwnsMagicInput()) return 1;
+        // While a cast request is pending the native magic AI must run: it
+        // turns the shoot animation into the actual oCSpell::Cast. LMB is
+        // masked during the player's DoAI, so it cannot start a new invest.
+        if (npc == player && OwnsMagicInput() && !CastRequestPending()) return 1;
         return THISCALL(Ivk_PH_MagicMode)();
     }
     auto& Ivk_PH_CameraAI = UnionCore::CreateHook(
@@ -124,6 +129,7 @@ namespace Gothic_I_Classic {
     void zCAICamera::PH_DoAI(zCVob* vob, int& state) {
         ParryControls::UpdateCamera(this);
         THISCALL(Ivk_PH_CameraAI)(vob, state);
+        PlaceHp2Camera(this);
     }
     auto& Ivk_PH_CameraKeys = UnionCore::CreateHook(
         &zCAICamera::CheckKeys, &zCAICamera::PH_CheckKeys, UnionCore::Hook_Auto);
@@ -212,6 +218,11 @@ namespace {
         SPL_WINDFIST, SPL_ICECUBE, SPL_BERZERK,
         SPL_THUNDERBALL, SPL_STORMFIST, SPL_BREATHOFDEATH, -1, -1, -1, -1
     }};
+    // Gothic I casts IceCube (FRZ) and Berzerk (SLE) at once: they have no
+    // invest phase, so their status never leaves DONTINVEST before the cast.
+    constexpr std::array<bool, ParryHotter::kSpellCount> kInstantSpell{{
+        false, true, true, false, false, false, false, false, false, false
+    }};
     constexpr std::array<int, ParryHotter::kSpellCount> kHotkeys{{
         KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0
     }};
@@ -299,6 +310,50 @@ namespace {
                   slot, bound ? 1 : 0,
                   model->HasAppliedModelProtoOverlay(zSTRING("PH_HARRY_CAST")) ? 1 : 0,
                   protos, ani ? ani->ascName.ToChar() : "missing");
+    }
+
+    // HP2 (PC) BaseCam: the camera orbits a pivot just above Harry's head at
+    // a fixed distance, aimed along the mouse yaw/pitch, so Harry stays at
+    // the same place on screen and the centre dot is exactly where the
+    // camera looks. Geometry between pivot and camera pulls it in at once;
+    // it eases back out. Native camera AI still runs first (and alone in
+    // dialogues, cutscenes, water and with F11).
+    float gCameraDistance = 0.0f;
+    void PlaceHp2Camera(zCAICamera* camera) {
+        constexpr float kDistance = 300.0f;   // cm behind the pivot
+        constexpr float kAboveHead = 15.0f;   // pivot above the bounding box top
+        constexpr float kWallGap = 25.0f;     // keep the near plane out of walls
+        constexpr float kMinDistance = 40.0f;
+        if (!camera || camera != zCAICamera::current || !camera->camVob || !player ||
+            !ParryControls::OwnsInput()) {
+            gCameraDistance = 0.0f;
+            return;
+        }
+        zCWorld* world = player->GetHomeWorld();
+        if (!world) return;
+        const float yaw = ParryControls::currentCameraYaw * 0.01745329252f;
+        const float pitch = ParryControls::currentCameraPitch * 0.01745329252f;
+        const zVEC3 dir(std::sin(yaw) * std::cos(pitch), std::sin(pitch),
+                        std::cos(yaw) * std::cos(pitch));
+        zVEC3 pivot = player->GetPositionWorld();
+        pivot[1] = player->bbox3D.maxs[1] + kAboveHead;
+        float want = kDistance;
+        const int flags = zTRACERAY_STAT_POLY | zTRACERAY_VOB_IGNORE_NO_CD_DYN |
+                          zTRACERAY_VOB_IGNORE_CHARACTER | zTRACERAY_POLY_IGNORE_TRANSP;
+        const zVEC3 back = dir * -(kDistance + kWallGap);
+        if (world->TraceRayNearestHit(pivot, back, static_cast<zCVob*>(player), flags)) {
+            const zVEC3 hit = world->traceRayReport.foundIntersection - pivot;
+            const float blocked = std::sqrt(hit[0] * hit[0] + hit[1] * hit[1] + hit[2] * hit[2]);
+            want = std::clamp(blocked - kWallGap, kMinDistance, kDistance);
+        }
+        const float dt = ParryControls::FrameSeconds();
+        if (gCameraDistance <= 0.0f || want < gCameraDistance) gCameraDistance = want;
+        else gCameraDistance = std::min(want, gCameraDistance + 400.0f * dt);
+        const zVEC3 position = pivot - dir * gCameraDistance;
+        if (!std::isfinite(position[0]) || !std::isfinite(position[1]) ||
+            !std::isfinite(position[2])) return;
+        camera->camVob->SetPositionWorld(position);
+        camera->camVob->SetHeadingAtWorld(dir);
     }
 
     // HP2 quick tap: LMB released on a valid target before Gothic's invest
@@ -723,6 +778,7 @@ namespace {
     bool gAiming = false;
     bool gManaPrepared = false;
     bool OwnsMagicInput() { return gAiming && ParryControls::ContextAvailable(); }
+    bool CastRequestPending() { return gRequestedSpell != nullptr; }
     void NotifyCastResult(int slot, bool success) {
         if (success) {
             gCooldown.MarkPreparedCast(slot, ParryHotter::SpellCooldown::Clock::now());
@@ -829,7 +885,11 @@ namespace {
             gSlots[i]->Print(35, 30, zSTRING(ParryHotter::kHotkeyLabels[i]));
         }
         gSelection = NewSprite(kLeft, HudTop(), kSize, SlotHeight(), "PH_SELECTED.TGA");
-        gReticle = NewSprite(4096 - 48, 4096 - 48, 96, 96, "PH_RETICLE.TGA");
+        // HP2 centre dot: square on screen (virtual X and Y units differ).
+        constexpr int kReticle = 150;
+        const int reticleHeight = screen->any(screen->nax(kReticle));
+        gReticle = NewSprite(4096 - kReticle / 2, 4096 - reticleHeight / 2,
+                             kReticle, reticleHeight, "PH_RETICLE.TGA");
     }
 
     void RemoveHud() {
@@ -937,10 +997,28 @@ namespace {
             }
         }
         const int targetIndex = glyph.visible ? spell : -1;
+        const bool locked = hasTarget && npc && gAiming && gManaPrepared &&
+            spell >= 0 && spell < ParryHotter::kSpellCount;
+        {
+            // Diagnostics: a valid lock whose glyph is not drawn.
+            static auto lastReport = std::chrono::steady_clock::time_point{};
+            const auto clock = std::chrono::steady_clock::now();
+            if (locked && !glyph.visible && camera && clock - lastReport > std::chrono::seconds(1)) {
+                lastReport = clock;
+                zVEC3 anchor = npc->bbox3D.mins + (npc->bbox3D.maxs - npc->bbox3D.mins) * zVEC3(0.5f);
+                const zVEC3 cs = camera->camMatrix * anchor;
+                float px = -1.0f, py = -1.0f;
+                if (cs[2] > camera->nearClipZ) camera->Project(&cs, px, py);
+                gLog.Line("glyph hidden: camZ=%.1f near=%.1f screen=%.0f,%.0f of %d,%d cooldown=%d texture=%d",
+                          cs[2], camera->nearClipZ, px, py, screen->psizex, screen->psizey,
+                          gCooldown.ReadyByTime(spell, ParryHotter::SpellCooldown::Clock::now()) ? 1 : 0,
+                          kTargetTextures[spell] ? 1 : 0);
+            }
+        }
         // HP2 lock-on: a chime when the dot reaches a new NPC, and the
         // engine focus shows that NPC's name. The pointer is only compared.
         static const oCNpc* lockedNpc = nullptr;
-        if (targetIndex >= 0 && npc) {
+        if (locked) {
             if (npc != lockedNpc) {
                 lockedNpc = npc;
                 if (zsound && player)
@@ -1187,7 +1265,8 @@ namespace {
             return CastAttempt::Refused;
         }
         const int status = spell->GetSpellStatus();
-        if (status == SPL_STATUS_DONTINVEST) {
+        const bool preparing = player->human_ai && player->human_ai->IsInCastAni();
+        if (status == SPL_STATUS_DONTINVEST && (!kInstantSpell[slot] || preparing)) {
             // The native prepare/invest animation has not reached a castable
             // point yet (a quick HP2 tap). The caller queues the cast.
             return CastAttempt::NotReady;
@@ -1263,7 +1342,7 @@ namespace {
         }
         const bool inputAllowed = ParryControls::ContextAvailable();
         int hotkey = inputAllowed && ParryControls::OwnsInput()
-            ? ParryControls::GetInput().slotPressed : 0;
+            ? ParryControls::ConsumeSlotPressed() : 0;
         for (int i = 0; inputAllowed && !hotkey && i < ParryHotter::kSpellCount; ++i) {
             if (zinput->KeyToggled(kHotkeys[i])) {
                 hotkey = i + 1;
@@ -1384,7 +1463,7 @@ namespace {
         }
         // A queued tap keeps its raised wand and target; pressing LMB again
         // must not re-ready the spell (that would discard the investment).
-        if ((out.startAim || (hotkey && out.aiming)) && !gQueuedTarget) {
+        if ((out.startAim || (hotkey && out.aiming)) && !gQueuedTarget && !gRequestedSpell) {
             RaiseWand(out.selected);
         }
         if (out.aiming && gAiming) {
@@ -1392,7 +1471,7 @@ namespace {
                 ParryCasting::Bind(player->human_ai, player->GetModel());
             AttachWand(); // Model may have changed with a clothing swap.
         }
-        if (out.aiming && !gManaPrepared &&
+        if (out.aiming && !gManaPrepared && !gRequestedSpell &&
             gCooldown.Ready(out.selected, mana, now)) {
             // Holding LMB can re-arm after the previous cooldown expires.
             RaiseWand(out.selected);
