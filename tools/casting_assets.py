@@ -31,22 +31,50 @@ _BONE_NAMES = {
 }
 
 
+_CASTING_ANIS = (
+    '        ani ("T_PH_PREPARE" 1 "S_PH_CHARGE" 0.1 0.0 M. "PH_HARRY_CHARGE.ASC" F 1 12 FPS:30)\n'
+    '        ani ("S_PH_CHARGE" 1 "S_PH_CHARGE" 0.0 0.0 M. "PH_HARRY_CHARGE.ASC" F 13 43 FPS:30)\n'
+    '        ani ("T_PH_RELEASE" 1 "S_PH_RELEASE" 0.0 0.0 M. "PH_HARRY_RELEASE.ASC" F 1 10 FPS:30)\n'
+    '        ani ("S_PH_RELEASE" 1 "S_PH_RELEASE" 0.0 0.0 M. "PH_HARRY_RELEASE.ASC" F 11 11 FPS:30)\n'
+    '        ani ("T_PH_RECOVER" 1 "" 0.0 0.1 M. "PH_HARRY_RELEASE.ASC" F 12 26 FPS:30)\n'
+    '        ani ("T_PH_CANCEL" 1 "" 0.0 0.1 M. "PH_HARRY_CHARGE.ASC" R 1 12 FPS:30)\n'
+)
+
+# DEV 0.13 bundles shipped this header without a skeleton declaration. ZenGin
+# then compiled the overlay with no mesh ("MDL: in order to calculate ani-bbox,
+# model should have a mesh at this stage, but has not") and attached the last
+# loaded mesh (PH_HARRY) to the shared human prototype, so every human NPC
+# rendered Harry's body under its own armor. Accepted only to be replaced.
+LEGACY_CASTING_MDS = (
+    'Model ("PH_HARRY_CAST")\n{\n    aniEnum\n    {\n' + _CASTING_ANIS + '    }\n}\n'
+).encode("ascii")
+
+
 def canonical_casting_mds() -> bytes:
-    """Unique animation names; no stock NPC animation is replaced."""
+    """Unique animation names; no stock NPC animation is replaced.
+
+    Like every stock human overlay (HUMANS_MAGE.MDS), it names the human
+    model and declares the skeleton without a mesh, so the clips bind to the
+    existing hierarchy and no mesh is added to any model.
+    """
     return (
-        'Model ("PH_HARRY_CAST")\n'
+        'Model ("HuS")\n'
         '{\n'
+        '    meshAndTree ("Hum_Body_Naked0.ASC" DONT_USE_MESH)\n'
+        '\n'
         '    aniEnum\n'
-        '    {\n'
-        '        ani ("T_PH_PREPARE" 1 "S_PH_CHARGE" 0.1 0.0 M. "PH_HARRY_CHARGE.ASC" F 1 12 FPS:30)\n'
-        '        ani ("S_PH_CHARGE" 1 "S_PH_CHARGE" 0.0 0.0 M. "PH_HARRY_CHARGE.ASC" F 13 43 FPS:30)\n'
-        '        ani ("T_PH_RELEASE" 1 "S_PH_RELEASE" 0.0 0.0 M. "PH_HARRY_RELEASE.ASC" F 1 10 FPS:30)\n'
-        '        ani ("S_PH_RELEASE" 1 "S_PH_RELEASE" 0.0 0.0 M. "PH_HARRY_RELEASE.ASC" F 11 11 FPS:30)\n'
-        '        ani ("T_PH_RECOVER" 1 "" 0.0 0.1 M. "PH_HARRY_RELEASE.ASC" F 12 26 FPS:30)\n'
-        '        ani ("T_PH_CANCEL" 1 "" 0.0 0.1 M. "PH_HARRY_CHARGE.ASC" R 1 12 FPS:30)\n'
-        '    }\n'
+        '    {\n' + _CASTING_ANIS + '    }\n'
         '}\n'
     ).encode("ascii")
+
+
+def upgrade_casting_mds(directory: Path) -> bool:
+    """Replace a legacy overlay header in place; True when a file changed."""
+    path = Path(directory) / "PH_HARRY_CAST.MDS"
+    if path.is_file() and not path.is_symlink() and path.read_bytes() == LEGACY_CASTING_MDS:
+        path.write_bytes(canonical_casting_mds())
+        return True
+    return False
 
 
 def _blocks(text: str, tag: str) -> list[str]:
@@ -222,7 +250,7 @@ def validate_optional_animation_assets(directory: Path) -> list[Path]:
             raise PatchError(f"Incomplete casting animation set: {path.name}")
         if not 1 <= path.stat().st_size <= CASTING_MAX_BYTES[path.name]:
             raise PatchError(f"Unexpected casting animation size: {path.name}")
-    if files[0].read_bytes() != canonical_casting_mds():
+    if files[0].read_bytes() not in (canonical_casting_mds(), LEGACY_CASTING_MDS):
         raise PatchError("Casting overlay MDS does not match the supported animation states")
     model = Path(directory) / "PH_HARRY.ASC"
     if not model.is_file() or model.is_symlink():

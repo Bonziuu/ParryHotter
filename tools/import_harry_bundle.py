@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 from tools.casting_assets import (
-    CASTING_ASSET_NAMES, CASTING_MAX_BYTES, animation_rig_signature,
+    CASTING_ASSET_NAMES, CASTING_MAX_BYTES, animation_rig_signature, upgrade_casting_mds,
     validate_optional_animation_assets,
 )
 from tools.file_transaction import FileTransaction
@@ -104,6 +104,8 @@ def validate_harry_bundle(bundle: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="parry-harry-check-") as directory:
         staged = Path(directory)
         _read_assets(bundle, staged)
+        if upgrade_casting_mds(staged):
+            print("Upgraded PH_HARRY_CAST.MDS: overlay now declares the human skeleton (fixes ani-bbox error).")
         validate_converted_assets(staged)
         validate_optional_animation_assets(staged)
 
@@ -190,6 +192,7 @@ def _preserve_cached_animations(game: Path, staged: Path) -> None:
         raise PatchError("Existing casting animations use a different bind rig; supply matching animation assets")
     for source in previous:
         (staged / source.name).write_bytes(source.read_bytes())
+    upgrade_casting_mds(staged)
     validate_optional_animation_assets(staged)
 
 
@@ -213,6 +216,8 @@ def import_harry_bundle(game: Path, bundle: Path) -> Path:
     with tempfile.TemporaryDirectory(prefix="parry-harry-bundle-") as directory:
         staged = Path(directory)
         _read_assets(bundle, staged)
+        if upgrade_casting_mds(staged):
+            print("Upgraded PH_HARRY_CAST.MDS: overlay now declares the human skeleton (fixes ani-bbox error).")
         validate_converted_assets(staged)
         _preserve_cached_animations(game, staged)
         optional = validate_optional_animation_assets(staged)

@@ -202,3 +202,29 @@ class CastingAssetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CastingOverlayHeaderTests(unittest.TestCase):
+    """ZenGin needs the skeleton declared in every overlay (found in-engine)."""
+
+    def test_overlay_declares_human_skeleton_without_mesh(self):
+        from tools.casting_assets import canonical_casting_mds
+        text = canonical_casting_mds().decode("ascii")
+        self.assertTrue(text.startswith('Model ("HuS")'))
+        self.assertIn('meshAndTree ("Hum_Body_Naked0.ASC" DONT_USE_MESH)', text)
+        self.assertLess(text.index("meshAndTree"), text.index("aniEnum"))
+        self.assertNotIn("registerMesh", text)
+
+    def test_legacy_overlay_is_upgraded_in_place_once(self):
+        import tempfile
+        from tools.casting_assets import (LEGACY_CASTING_MDS, canonical_casting_mds,
+                                          upgrade_casting_mds)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "PH_HARRY_CAST.MDS"
+            path.write_bytes(LEGACY_CASTING_MDS)
+            self.assertTrue(upgrade_casting_mds(Path(temporary)))
+            self.assertEqual(path.read_bytes(), canonical_casting_mds())
+            self.assertFalse(upgrade_casting_mds(Path(temporary)))
+            path.write_bytes(b"custom")
+            self.assertFalse(upgrade_casting_mds(Path(temporary)))
+            self.assertEqual(path.read_bytes(), b"custom")
