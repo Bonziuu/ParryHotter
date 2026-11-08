@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # BAT runs this file as a script
 from tools.vdf import VdfError, write_vdf_from_stage
 from tools.generate_hud_textures import generate as generate_hud_textures
 from tools.download_hud import HudDownloadError, fetch_verified_hud, validate_hud_binary
