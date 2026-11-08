@@ -23,7 +23,8 @@ from tools.download_hud import HudDownloadError, fetch_verified_hud, validate_hu
 from tools.wand_asset import prepare_wand, WandError
 from tools.spell_catalog import REQUIRED_COMPILED_SYMBOLS, REQUIRED_TEXTURES
 from tools.file_transaction import FileTransaction
-from tools.casting_assets import CASTING_MDS, validate_optional_animation_assets
+from tools.casting_assets import (CASTING_MDS, SUPERSEDED_CASTING_MDS, canonical_casting_mds,
+                                  validate_optional_animation_assets)
 from tools.install import PatchError
 
 
@@ -105,6 +106,46 @@ def release_profile(game: Path) -> tuple[Path, bytes]:
     return game / "System" / "ParryHotter-PLAY.ini", text.encode("latin-1")
 
 
+def refresh_casting_overlay(game: Path) -> bool:
+    """Upgrade a superseded PH_HARRY_CAST.MDS and retire its compiled cache.
+
+    The original is kept as a numbered backup. Compiled PH_HARRY_CAST files
+    are moved (never deleted) so Gothic recompiles the overlay from source.
+    """
+    anims = game / "_work" / "Data" / "Anims"
+    source = anims / CASTING_MDS
+    if not source.is_file() or source.is_symlink():
+        return False
+    current = source.read_bytes()
+    changed = False
+    if current in SUPERSEDED_CASTING_MDS:
+        for index in range(1000):
+            backup = source.with_name(f"{source.name}.parryhotter-backup-{index}")
+            if not backup.exists():
+                backup.write_bytes(current)
+                break
+        else:
+            raise PackagingError(f"Too many backups of {source}")
+        source.write_bytes(canonical_casting_mds())
+        changed = True
+    compiled_dir = anims / "_compiled"
+    stem = Path(CASTING_MDS).stem.upper()
+    stale = [path for path in compiled_dir.glob("*") if path.is_file()
+             and path.name.upper().startswith(stem)
+             and (changed or path.stat().st_mtime + 2 < source.stat().st_mtime)]
+    if stale:
+        retired = compiled_dir / "parryhotter-stale"
+        for index in range(1000):
+            target = retired / str(index)
+            if not target.exists():
+                break
+        target.mkdir(parents=True)
+        for path in stale:
+            shutil.move(str(path), str(target / path.name))
+        changed = True
+    return changed
+
+
 def private_harry_assets(game: Path, dat: Path) -> list[tuple[Path, Path]]:
     """Preflight the optional appearance/animation sources before generating files."""
     content = game / "_work" / "Data" / "Scripts" / "Content"
@@ -178,6 +219,9 @@ def build_mod(
             # same G1 format (byte-identical on original Piranha archives).
             compiler = None
     dat, subtitles = validate_compiled(game)
+    if refresh_casting_overlay(game):
+        print("Zaktualizowano PH_HARRY_CAST.MDS (animacje Harry'ego pod nazwami czarow Gothica);"
+              " stara kompilacja przeniesiona do Anims\\_compiled\\parryhotter-stale.")
     harry_assets = private_harry_assets(game, dat)
     # The mesh is embedded in the user's locally built .mod. Offline
     # procedural fallback ensures the plugin never references a missing wand.

@@ -105,8 +105,8 @@ class CastingAssetTests(unittest.TestCase):
         with self.assertRaisesRegex(PatchError, "Incomplete"):
             validate_optional_animation_assets(self.root)
 
-    def test_overlay_cannot_reference_arbitrary_files_or_replace_stock_animations(self):
-        self.replace(CASTING_MDS, b'T_PH_PREPARE', b'T_MAGRUN_2_WNDCAST')
+    def test_overlay_cannot_reference_arbitrary_files_or_names(self):
+        self.replace(CASTING_MDS, b'S_WNDCAST" 1', b'S_RUNL" 1')
         with self.assertRaisesRegex(PatchError, "overlay MDS"):
             validate_optional_animation_assets(self.root)
 
@@ -215,6 +215,25 @@ class CastingOverlayHeaderTests(unittest.TestCase):
         self.assertLess(text.index("meshAndTree"), text.index("aniEnum"))
         self.assertNotIn("registerMesh", text)
 
+    def test_overlay_only_uses_stock_spell_animation_names(self):
+        # Gothic I rejects an overlay whose animation is not in HUMANS.MDS.
+        import re
+        from tools.casting_assets import canonical_casting_mds
+        text = canonical_casting_mds().decode("ascii")
+        names = re.findall(r'ani \("([A-Z_0-9]+)" 1 "([A-Z_0-9]*)"', text)
+        stock = {
+            "T_MAGRUN_2_WNDCAST", "S_WNDCAST", "T_WNDCAST_2_WNDSHOOT", "S_WNDSHOOT",
+            "T_WNDSHOOT_2_STAND", "T_MAGRUN_2_FIBCAST", "S_FIBCAST",
+            "T_FIBCAST_2_FIBSHOOT", "S_FIBSHOOT", "T_FIBSHOOT_2_STAND",
+            "T_MAGRUN_2_FRZSHOOT", "S_FRZSHOOT", "T_FRZSHOOT_2_STAND",
+            "T_MAGRUN_2_SLESHOOT", "S_SLESHOOT", "T_SLESHOOT_2_STAND", "S_MAGRUN",
+        }
+        self.assertEqual(len(names), 16)
+        for name, following in names:
+            self.assertIn(name, stock)
+            self.assertIn(following, stock)
+        self.assertNotIn("_PH_", text)
+
     def test_legacy_overlay_is_upgraded_in_place_once(self):
         import tempfile
         from tools.casting_assets import (LEGACY_CASTING_MDS, canonical_casting_mds,
@@ -222,6 +241,10 @@ class CastingOverlayHeaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "PH_HARRY_CAST.MDS"
             path.write_bytes(LEGACY_CASTING_MDS)
+            self.assertTrue(upgrade_casting_mds(Path(temporary)))
+            self.assertEqual(path.read_bytes(), canonical_casting_mds())
+            from tools.casting_assets import UNIQUE_NAMES_CASTING_MDS
+            path.write_bytes(UNIQUE_NAMES_CASTING_MDS)
             self.assertTrue(upgrade_casting_mds(Path(temporary)))
             self.assertEqual(path.read_bytes(), canonical_casting_mds())
             self.assertFalse(upgrade_casting_mds(Path(temporary)))

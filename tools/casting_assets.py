@@ -49,9 +49,59 @@ LEGACY_CASTING_MDS = (
     'Model ("PH_HARRY_CAST")\n{\n    aniEnum\n    {\n' + _CASTING_ANIS + '    }\n}\n'
 ).encode("ascii")
 
+# The second header declared the skeleton but still used new T_PH_* names.
+# Gothic I refuses such an overlay entirely ("ani in overlay not present in
+# base"), so the clips never played. Accepted only to be replaced.
+UNIQUE_NAMES_CASTING_MDS = (
+    'Model ("HuS")\n'
+    '{\n'
+    '    meshAndTree ("Hum_Body_Naked0.ASC" DONT_USE_MESH)\n'
+    '\n'
+    '    aniEnum\n'
+    '    {\n' + _CASTING_ANIS + '    }\n'
+    '}\n'
+).encode("ascii")
+
+# Spell animation letters (Gothic I spellFXAniLetters) of the six HUD spells:
+# Windfist/Stormfist WND and Thunderball/BreathOfDeath FIB are invested;
+# IceCube FRZ and Berzerk SLE shoot at once. Every name exists in the stock
+# HUMANS.MDS, as an overlay requires. The overlay is applied only to PC_Hero,
+# so no other human changes.
+INVEST_LETTERS = ("WND", "FIB")
+SHOOT_LETTERS = ("FRZ", "SLE")
+_CHARGE = '"PH_HARRY_CHARGE.ASC"'
+_RELEASE = '"PH_HARRY_RELEASE.ASC"'
+
+
+def _ani(name: str, following: str, blend_in: str, blend_out: str, asc: str,
+         first: int, last: int) -> str:
+    return (f'        ani ("{name}" 1 "{following}" {blend_in} {blend_out} M. '
+            f'{asc} F {first} {last} FPS:30)\n')
+
+
+def stock_casting_anis() -> str:
+    lines = []
+    for letter in INVEST_LETTERS:
+        cast, shoot = f"S_{letter}CAST", f"S_{letter}SHOOT"
+        lines += [
+            _ani(f"T_MAGRUN_2_{letter}CAST", cast, "0.1", "0.0", _CHARGE, 1, 12),
+            _ani(cast, cast, "0.0", "0.0", _CHARGE, 13, 43),
+            _ani(f"T_{letter}CAST_2_{letter}SHOOT", shoot, "0.0", "0.0", _RELEASE, 1, 10),
+            _ani(shoot, shoot, "0.0", "0.0", _RELEASE, 11, 11),
+            _ani(f"T_{letter}SHOOT_2_STAND", "S_MAGRUN", "0.0", "0.1", _RELEASE, 12, 26),
+        ]
+    for letter in SHOOT_LETTERS:
+        shoot = f"S_{letter}SHOOT"
+        lines += [
+            _ani(f"T_MAGRUN_2_{letter}SHOOT", shoot, "0.1", "0.0", _RELEASE, 1, 10),
+            _ani(shoot, shoot, "0.0", "0.0", _RELEASE, 11, 11),
+            _ani(f"T_{letter}SHOOT_2_STAND", "S_MAGRUN", "0.0", "0.1", _RELEASE, 12, 26),
+        ]
+    return "".join(lines)
+
 
 def canonical_casting_mds() -> bytes:
-    """Unique animation names; no stock NPC animation is replaced.
+    """Harry's clips under the stock spell animation names.
 
     Like every stock human overlay (HUMANS_MAGE.MDS), it names the human
     model and declares the skeleton without a mesh, so the clips bind to the
@@ -63,15 +113,18 @@ def canonical_casting_mds() -> bytes:
         '    meshAndTree ("Hum_Body_Naked0.ASC" DONT_USE_MESH)\n'
         '\n'
         '    aniEnum\n'
-        '    {\n' + _CASTING_ANIS + '    }\n'
+        '    {\n' + stock_casting_anis() + '    }\n'
         '}\n'
     ).encode("ascii")
 
 
+SUPERSEDED_CASTING_MDS = (LEGACY_CASTING_MDS, UNIQUE_NAMES_CASTING_MDS)
+
+
 def upgrade_casting_mds(directory: Path) -> bool:
-    """Replace a legacy overlay header in place; True when a file changed."""
+    """Replace a superseded overlay in place; True when a file changed."""
     path = Path(directory) / "PH_HARRY_CAST.MDS"
-    if path.is_file() and not path.is_symlink() and path.read_bytes() == LEGACY_CASTING_MDS:
+    if path.is_file() and not path.is_symlink() and path.read_bytes() in SUPERSEDED_CASTING_MDS:
         path.write_bytes(canonical_casting_mds())
         return True
     return False
@@ -250,7 +303,7 @@ def validate_optional_animation_assets(directory: Path) -> list[Path]:
             raise PatchError(f"Incomplete casting animation set: {path.name}")
         if not 1 <= path.stat().st_size <= CASTING_MAX_BYTES[path.name]:
             raise PatchError(f"Unexpected casting animation size: {path.name}")
-    if files[0].read_bytes() not in (canonical_casting_mds(), LEGACY_CASTING_MDS):
+    if files[0].read_bytes() not in (canonical_casting_mds(), *SUPERSEDED_CASTING_MDS):
         raise PatchError("Casting overlay MDS does not match the supported animation states")
     model = Path(directory) / "PH_HARRY.ASC"
     if not model.is_file() or model.is_symlink():

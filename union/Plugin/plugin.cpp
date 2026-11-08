@@ -9,6 +9,7 @@
 // See union/README.md before installing the experimental plugin.
 #include "plugin.h"
 #include "UnionAfx.h"
+#include <cstdio>
 #ifdef min
 #undef min
 #endif
@@ -88,6 +89,8 @@ namespace Gothic_I_Classic {
     void oCAIHuman::PH_DoAI(zCVob* vob, int& state) {
         // Hide owned mouse buttons from the player's native AI only
         // (RMB + W jumped in-game; LMB would attack).
+        if (this->npc && this->npc == player)
+            ParryControls::CaptureIfMissed(static_cast<zCInput_Win32*>(zinput));
         const bool own = this->npc && this->npc == player &&
             ParryControls::ContextAvailable();
         ParryControls::maskNativeLeft = own && ParryControls::mouseGuard.StripsLeft();
@@ -172,6 +175,7 @@ namespace Gothic_I_Classic {
 
     void zCInput_Win32::PH_ProcessInputEvents() {
         THISCALL(Ivk_PH_ProcessInputEvents)();
+        ++ParryControls::inputHookCalls;
         ParryControls::CaptureInput(this);
         if (!ParryControls::ContextAvailable()) return;
         if (!this->GetMouseButtonPressedRight()) return;
@@ -270,6 +274,27 @@ namespace {
         gLog.Line("jump input=%d owns=%d aiState=%d aboveFloor=%.1f canJump=%d body=%d",
                   jump ? 1 : 0, ParryControls::OwnsInput() ? 1 : 0, ai->state,
                   ai->aboveFloor, ai->CanJump(0), player ? player->GetBodyState() : -1);
+    }
+
+    // Diagnostics: which model prototypes (base + overlays) the hero carries
+    // and whether Harry's clip replaced the stock Windfist charge animation.
+    void LogCastOverlay(int slot, bool bound) {
+        zCModel* model = player ? player->GetModel() : nullptr;
+        if (!model) { gLog.Line("raise slot=%d overlay model=none", slot); return; }
+        char protos[256] = {};
+        std::size_t used = 0;
+        for (int i = 0; i < model->modelProtoList.GetNum() && used + 40 < sizeof(protos); ++i) {
+            zCModelPrototype* proto = model->modelProtoList[i];
+            const int written = std::snprintf(protos + used, sizeof(protos) - used, "%s%s",
+                i ? "," : "", proto ? proto->modelProtoName.ToChar() : "?");
+            if (written > 0) used += std::size_t(written);
+        }
+        const int id = model->GetAniIDFromAniName(zSTRING("S_WNDCAST"));
+        zCModelAni* ani = id >= 0 ? model->GetAniFromAniID(id) : nullptr;
+        gLog.Line("raise slot=%d harryCastAnims=%d overlay=%d protos=[%s] S_WNDCAST=%s",
+                  slot, bound ? 1 : 0,
+                  model->HasAppliedModelProtoOverlay(zSTRING("PH_HARRY_CAST")) ? 1 : 0,
+                  protos, ani ? ani->ascName.ToChar() : "missing");
     }
 
     // HP2 quick tap: LMB released on a valid target before Gothic's invest
@@ -1064,7 +1089,7 @@ namespace {
             // handles for all six spells, including one-phase Gothic spells.
             // Incomplete/unloaded animation assets keep the native defaults.
             const bool bound = ParryCasting::Bind(player->human_ai, player->GetModel());
-            gLog.Line("raise slot=%d harryCastAnims=%d", spellSlot, bound ? 1 : 0);
+            LogCastOverlay(spellSlot, bound);
             player->human_ai->TransitionToInvest();
         }
         gManaPrepared = true;
@@ -1252,12 +1277,13 @@ namespace {
             if (now != last || out.cast || out.startAim || out.stopAim) {
                 gLog.Line("frame LMB=%d RMB=%d aim=%d wand=%d manaPrep=%d target=%d(%s) "
                           "slot=%d body=%d castAni=%d request=%d start=%d stop=%d cast=%d mana=%d "
-                          "F11move=%d ownsMove=%d jump=%d",
+                          "F11move=%d ownsMove=%d jump=%d inputHook=%u fallback=%u",
                           now.left, now.right, now.aiming, now.wand, now.mana, now.target,
                           ParryHotter::AimTargetDescription(gAimTargetState), now.slot,
                           now.body, now.castAni, now.request, out.startAim, out.stopAim,
                           out.cast, player->GetAttribute(NPC_ATR_MANA),
-                          now.moveOn, now.owns, now.jump);
+                          now.moveOn, now.owns, now.jump,
+                          ParryControls::inputHookCalls, ParryControls::fallbackCaptures);
                 last = now;
             }
         }
@@ -1388,7 +1414,7 @@ cexport void Game_Exit() {
     RemoveHud();
 }
 cexport void Game_PreLoop() {}
-cexport void Game_Loop() { GameTick(); }
+cexport void Game_Loop() { ++ParryControls::frameId; GameTick(); }
 cexport void Game_PostLoop() {}
 cexport void Game_MenuLoop() {}
 cexport void Game_SaveBegin() {

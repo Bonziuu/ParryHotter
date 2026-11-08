@@ -408,3 +408,28 @@ class PackagingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefreshCastingOverlayTests(unittest.TestCase):
+    def test_superseded_overlay_is_upgraded_and_compiled_cache_retired(self):
+        import tempfile
+        from tools.casting_assets import UNIQUE_NAMES_CASTING_MDS
+        from tools.package_mod import refresh_casting_overlay
+        with tempfile.TemporaryDirectory() as temporary:
+            game = Path(temporary)
+            anims = game / "_work" / "Data" / "Anims"
+            (anims / "_compiled").mkdir(parents=True)
+            (anims / CASTING_MDS).write_bytes(UNIQUE_NAMES_CASTING_MDS)
+            stale = anims / "_compiled" / "PH_HARRY_CAST-S_PH_CHARGE.MAN"
+            stale.write_bytes(b"old")
+            keep = anims / "_compiled" / "PH_HARRY.MDM"
+            keep.write_bytes(b"mesh")
+            self.assertTrue(refresh_casting_overlay(game))
+            self.assertEqual((anims / CASTING_MDS).read_bytes(), canonical_casting_mds())
+            self.assertEqual((anims / f"{CASTING_MDS}.parryhotter-backup-0").read_bytes(),
+                             UNIQUE_NAMES_CASTING_MDS)
+            self.assertFalse(stale.exists())
+            self.assertEqual((anims / "_compiled" / "parryhotter-stale" / "0" / stale.name)
+                             .read_bytes(), b"old")
+            self.assertTrue(keep.exists())
+            self.assertFalse(refresh_casting_overlay(game))
