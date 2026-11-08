@@ -32,10 +32,11 @@ struct InputSnapshot {
 inline InputSnapshot input;
 inline bool enabled = true;
 inline bool ownsInput = false;
-// Diagnostics and once-per-frame guard: the engine input hook may not run
-// during gameplay, so the player's DoAI calls CaptureInput as a fallback.
-inline unsigned frameId = 0;
-inline unsigned capturedFrame = ~0u;
+// The engine input hook may not run during gameplay, so the player's DoAI
+// captures input when no capture happened since its previous call. Exactly
+// one capture per player AI step: a second one would find the number-key
+// toggles already consumed and drop the selected slot.
+inline bool capturedSinceAI = false;
 inline unsigned inputHookCalls = 0;
 inline unsigned fallbackCaptures = 0;
 inline ParryHotter::FreeCamera orbit;
@@ -220,7 +221,7 @@ inline const InputSnapshot& GetInput() { return input; }
 inline bool OwnsInput() { return ownsInput && Available(); }
 
 inline void CaptureInput(zCInput_Win32* controls) {
-    capturedFrame = frameId;
+    capturedSinceAI = true;
     if (!controls) { ReleaseNativeBindings(); Disable(); return; }
     // Spells own LMB in both movement modes (F11 included) whenever the
     // player is in a controllable state; RMB is our jump only while our
@@ -302,9 +303,11 @@ inline void UpdateCamera(zCAICamera* camera) {
 }
 
 inline void CaptureIfMissed(zCInput_Win32* controls) {
-    if (capturedFrame == frameId) return;
-    ++fallbackCaptures;
-    CaptureInput(controls);
+    if (!capturedSinceAI) {
+        ++fallbackCaptures;
+        CaptureInput(controls);
+    }
+    capturedSinceAI = false;
 }
 
 inline void BeforeHumanAI(oCAIHuman* ai) {

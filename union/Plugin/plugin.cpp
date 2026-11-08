@@ -1414,9 +1414,13 @@ cexport void Game_Exit() {
     RemoveHud();
 }
 cexport void Game_PreLoop() {}
-cexport void Game_Loop() { ++ParryControls::frameId; GameTick(); }
+cexport void Game_Loop() { GameTick(); }
 cexport void Game_PostLoop() {}
-cexport void Game_MenuLoop() {}
+cexport void Game_MenuLoop() {
+    // Menus (options/controls included) must always see the player's own
+    // key bindings, even if no gameplay input capture runs any more.
+    ParryControls::ReleaseNativeBindings();
+}
 cexport void Game_SaveBegin() {
     ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
@@ -1485,6 +1489,7 @@ cexport void Game_LoadEnd_ChangeLevel() {
 cexport void Game_LoadBegin_Trigger() {}
 cexport void Game_LoadEnd_Trigger() {}
 cexport void Game_Pause() {
+    ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // The game loop may stop during pause and never call GameTick's
     // !gameplay branch. Cancel pending input here, too.

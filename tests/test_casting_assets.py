@@ -226,13 +226,16 @@ class CastingOverlayHeaderTests(unittest.TestCase):
             "T_WNDSHOOT_2_STAND", "T_MAGRUN_2_FIBCAST", "S_FIBCAST",
             "T_FIBCAST_2_FIBSHOOT", "S_FIBSHOOT", "T_FIBSHOOT_2_STAND",
             "T_MAGRUN_2_FRZSHOOT", "S_FRZSHOOT", "T_FRZSHOOT_2_STAND",
-            "T_MAGRUN_2_SLESHOOT", "S_SLESHOOT", "T_SLESHOOT_2_STAND", "S_MAGRUN",
+            "T_MAGRUN_2_SLESHOOT", "S_SLESHOOT", "T_SLESHOOT_2_STAND", "",
         }
         self.assertEqual(len(names), 16)
         for name, following in names:
             self.assertIn(name, stock)
             self.assertIn(following, stock)
         self.assertNotIn("_PH_", text)
+        for name, following in names:
+            if name.endswith("_2_STAND"):
+                self.assertEqual(following, "")
 
     def test_legacy_overlay_is_upgraded_in_place_once(self):
         import tempfile

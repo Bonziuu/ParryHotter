@@ -79,7 +79,9 @@ def _ani(name: str, following: str, blend_in: str, blend_out: str, asc: str,
             f'{asc} F {first} {last} FPS:30)\n')
 
 
-def stock_casting_anis() -> str:
+def stock_casting_anis(recover_next: str = "") -> str:
+    # Like the stock *_2_STAND clips, recovery ends with no follow-up ("")
+    # so the native magic AI sees the transition finish.
     lines = []
     for letter in INVEST_LETTERS:
         cast, shoot = f"S_{letter}CAST", f"S_{letter}SHOOT"
@@ -88,16 +90,28 @@ def stock_casting_anis() -> str:
             _ani(cast, cast, "0.0", "0.0", _CHARGE, 13, 43),
             _ani(f"T_{letter}CAST_2_{letter}SHOOT", shoot, "0.0", "0.0", _RELEASE, 1, 10),
             _ani(shoot, shoot, "0.0", "0.0", _RELEASE, 11, 11),
-            _ani(f"T_{letter}SHOOT_2_STAND", "S_MAGRUN", "0.0", "0.1", _RELEASE, 12, 26),
+            _ani(f"T_{letter}SHOOT_2_STAND", recover_next, "0.0", "0.1", _RELEASE, 12, 26),
         ]
     for letter in SHOOT_LETTERS:
         shoot = f"S_{letter}SHOOT"
         lines += [
             _ani(f"T_MAGRUN_2_{letter}SHOOT", shoot, "0.1", "0.0", _RELEASE, 1, 10),
             _ani(shoot, shoot, "0.0", "0.0", _RELEASE, 11, 11),
-            _ani(f"T_{letter}SHOOT_2_STAND", "S_MAGRUN", "0.0", "0.1", _RELEASE, 12, 26),
+            _ani(f"T_{letter}SHOOT_2_STAND", recover_next, "0.0", "0.1", _RELEASE, 12, 26),
         ]
     return "".join(lines)
+
+
+def _stock_names_mds(recover_next: str) -> bytes:
+    return (
+        'Model ("HuS")\n'
+        '{\n'
+        '    meshAndTree ("Hum_Body_Naked0.ASC" DONT_USE_MESH)\n'
+        '\n'
+        '    aniEnum\n'
+        '    {\n' + stock_casting_anis(recover_next) + '    }\n'
+        '}\n'
+    ).encode("ascii")
 
 
 def canonical_casting_mds() -> bytes:
@@ -107,18 +121,15 @@ def canonical_casting_mds() -> bytes:
     model and declares the skeleton without a mesh, so the clips bind to the
     existing hierarchy and no mesh is added to any model.
     """
-    return (
-        'Model ("HuS")\n'
-        '{\n'
-        '    meshAndTree ("Hum_Body_Naked0.ASC" DONT_USE_MESH)\n'
-        '\n'
-        '    aniEnum\n'
-        '    {\n' + stock_casting_anis() + '    }\n'
-        '}\n'
-    ).encode("ascii")
+    return _stock_names_mds("")
 
 
-SUPERSEDED_CASTING_MDS = (LEGACY_CASTING_MDS, UNIQUE_NAMES_CASTING_MDS)
+# First stock-name build: recovery chained into S_MAGRUN, unlike the stock
+# clips. Accepted only to be replaced.
+MAGRUN_RECOVERY_CASTING_MDS = _stock_names_mds("S_MAGRUN")
+
+SUPERSEDED_CASTING_MDS = (LEGACY_CASTING_MDS, UNIQUE_NAMES_CASTING_MDS,
+                          MAGRUN_RECOVERY_CASTING_MDS)
 
 
 def upgrade_casting_mds(directory: Path) -> bool:
