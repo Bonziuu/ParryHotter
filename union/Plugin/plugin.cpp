@@ -45,6 +45,7 @@ namespace {
         oCNpc* victim, const oCNpc::oSDamageDescriptor& descriptor
     );
     int CastTracked(oCSpell* spell);
+    void LogJumpInput(oCAIHuman* ai);
     void BeginDamage(oCNpc*, const oCNpc::oSDamageDescriptor&);
     void EndDamage();
     void NotifyCastResult(int slot, bool success);
@@ -85,6 +86,7 @@ namespace Gothic_I_Classic {
             ParryControls::ContextAvailable();
         ParryControls::maskNativeLeft = own && ParryControls::mouseGuard.StripsLeft();
         ParryControls::maskNativeRight = own && ParryControls::mouseGuard.StripsRight();
+        if (this->npc && this->npc == player) LogJumpInput(this);
         ParryControls::BeforeHumanAI(this);
         THISCALL(Ivk_PH_HumanAI)(vob, state);
         ParryControls::AfterHumanAI(this);
@@ -223,6 +225,45 @@ namespace {
     oCSpell* gRequestedSpell = nullptr;
     // Set by a successful release-cast; the wand lowers once it resolves.
     bool gLowerAfterCast = false;
+    enum class CastAttempt { Refused, Requested, NotReady };
+
+    // Diagnostics: every change of the jump input with the native facts
+    // that decide whether a jump can start.
+    void LogJumpInput(oCAIHuman* ai) {
+        static bool lastJump = false;
+        const bool jump = ParryControls::GetInput().jumpHeld;
+        if (jump == lastJump || !ai) return;
+        lastJump = jump;
+        gLog.Line("jump input=%d owns=%d aiState=%d aboveFloor=%.1f canJump=%d body=%d",
+                  jump ? 1 : 0, ParryControls::OwnsInput() ? 1 : 0, ai->state,
+                  ai->aboveFloor, ai->CanJump(0), player ? player->GetBodyState() : -1);
+    }
+
+    // HP2 quick tap: LMB released on a valid target before Gothic's invest
+    // became castable. Keep the wand raised, invest, and cast at the target
+    // captured on release as soon as the engine allows (or give up).
+    oCNpc* gQueuedTarget = nullptr;
+    int gQueuedSlot = -1;
+    ParryHotter::CastLedger::Clock::time_point gQueuedExpires{};
+
+    void ClearQueuedCast() {
+        auto* target = gQueuedTarget;
+        gQueuedTarget = nullptr;
+        gQueuedSlot = -1;
+        if (target) target->Release();
+    }
+
+    void QueueCast(int slot, oCNpc* target) {
+        ClearQueuedCast();
+        if (!target) return;
+        target->AddRef();
+        gQueuedTarget = target;
+        gQueuedSlot = slot;
+        gQueuedExpires = ParryHotter::CastLedger::Clock::now() +
+            std::chrono::milliseconds(1500);
+        gLog.Line("cast slot=%d QUEUED until castable target=%p", slot,
+                  static_cast<void*>(target));
+    }
     int gRequestedSlot = -1;
     oCNpc* gRequestedTarget = nullptr;
     std::uint64_t gRequestGeneration = 0;
@@ -960,6 +1001,7 @@ namespace {
     }
 
     void LowerWand() {
+        ClearQueuedCast();
         if (gAiming || gRequestedSpell) gLog.Line("lower wand aiming=%d request=%d",
                                                   gAiming ? 1 : 0, gRequestedSpell ? 1 : 0);
         gLowerAfterCast = false;
@@ -998,25 +1040,24 @@ namespace {
         if (symbol) symbol->SetValue(0, 0);
     }
 
-    bool CastAtCenteredNpc(int slot) {
+    CastAttempt CastAtNpc(int slot, oCNpc* target) {
         if (!ParryControls::ContextAvailable() || gRequestedSpell ||
             slot < 0 || slot >= ParryHotter::kSpellCount ||
             !ParryHotter::kSpellAvailable[slot]) {
             gLog.Line("cast slot=%d REFUSED context=%d pendingRequest=%d", slot,
                       ParryControls::ContextAvailable() ? 1 : 0, gRequestedSpell ? 1 : 0);
-            return false;
+            return CastAttempt::Refused;
         }
-        oCNpc* target = GetCenteredNpcTarget();
-        if (!target) {
-            gLog.Line("cast slot=%d REFUSED no target (%s)", slot,
+        if (!target || target->IsDead()) {
+            gLog.Line("cast slot=%d REFUSED no live target (%s)", slot,
                       ParryHotter::AimTargetDescription(gAimTargetState));
-            return false;
+            return CastAttempt::Refused;
         }
         oCMag_Book* spellbook = player->GetSpellBook();
         if (!spellbook) {
             SetAimTargetState(ParryHotter::AimTargetState::NoSpellBook);
             gLog.Line("cast slot=%d REFUSED no spellbook", slot);
-            return false;
+            return CastAttempt::Refused;
         }
         auto* spell = spellbook->GetSelectedSpell();
         if (!spell || spell->GetSpellID() != kGothicSpellIds[slot] ||
@@ -1025,12 +1066,17 @@ namespace {
                       slot, spell ? 1 : 0, spell ? spell->GetSpellID() : -1,
                       kGothicSpellIds[slot], spell ? spell->GetEnabled() : -1,
                       spell ? spell->IsValidTarget(target) : -1);
-            return false;
+            return CastAttempt::Refused;
         }
         const int status = spell->GetSpellStatus();
-        if (status == SPL_STATUS_STOP || status == SPL_STATUS_DONTINVEST) {
+        if (status == SPL_STATUS_DONTINVEST) {
+            // The native prepare/invest animation has not reached a castable
+            // point yet (a quick HP2 tap). The caller queues the cast.
+            return CastAttempt::NotReady;
+        }
+        if (status == SPL_STATUS_STOP) {
             gLog.Line("cast slot=%d REFUSED spellStatus=%d", slot, status);
-            return false;
+            return CastAttempt::Refused;
         }
         // Bind the game engine's target to the actual center-screen NPC.
         // Gothic's own focus detection may otherwise select a neighbor.
@@ -1058,8 +1104,14 @@ namespace {
                   gCastConfirmed ? 1 : 0, gRequestedSpell ? 1 : 0);
         // The native animation may call oCSpell::Cast on a later frame.
         // Its hook is the sole place that starts the cooldown on success.
-        return gCastConfirmed || gRequestedSpell != nullptr;
+        return (gCastConfirmed || gRequestedSpell != nullptr)
+            ? CastAttempt::Requested : CastAttempt::Refused;
     }
+
+    CastAttempt CastAtCenteredNpc(int slot) {
+        return CastAtNpc(slot, GetCenteredNpcTarget());
+    }
+
 
     void GameTick() {
         const bool gameplay =
@@ -1152,11 +1204,40 @@ namespace {
         // wand only after the native cast resolved (confirmed or expired).
         if (out.cast && gAiming && gManaPrepared &&
             gCooldown.ReadyByTime(out.selected, now)) {
-            gLowerAfterCast = CastAtCenteredNpc(out.selected);
+            const auto attempt = CastAtNpc(out.selected, targetNpc);
+            if (attempt == CastAttempt::Requested) gLowerAfterCast = true;
+            else if (attempt == CastAttempt::NotReady) QueueCast(out.selected, targetNpc);
         }
-        if (out.startAim) gLowerAfterCast = false;
-        if (out.stopAim && !gLowerAfterCast) {
+        if (out.startAim) { gLowerAfterCast = false; ClearQueuedCast(); }
+        if (out.stopAim && !gLowerAfterCast && !gQueuedTarget) {
             LowerWand();
+        }
+        if (gQueuedTarget) {
+            // Keep investing until the native spell becomes castable, then
+            // cast at the target captured on release. Give up cleanly when
+            // the context, target, slot or time window is gone.
+            auto* book = player->GetSpellBook();
+            if (!inputAllowed || !gAiming || out.selected != gQueuedSlot ||
+                gQueuedTarget->IsDead() ||
+                ParryHotter::CastLedger::Clock::now() >= gQueuedExpires) {
+                gLog.Line("cast slot=%d QUEUE DROPPED input=%d wand=%d dead=%d",
+                          gQueuedSlot, inputAllowed ? 1 : 0, gAiming ? 1 : 0,
+                          gQueuedTarget->IsDead() ? 1 : 0);
+                ClearQueuedCast();
+                if (!out.aiming) LowerWand();
+            } else {
+                if (book && !gRequestedSpell) book->Spell_Invest();
+                auto* queued = gQueuedTarget;
+                const int slot = gQueuedSlot;
+                const auto attempt = CastAtNpc(slot, queued);
+                if (attempt == CastAttempt::Requested) {
+                    ClearQueuedCast();
+                    gLowerAfterCast = true;
+                } else if (attempt == CastAttempt::Refused) {
+                    ClearQueuedCast();
+                    if (!out.aiming) LowerWand();
+                }
+            }
         }
         if (gLowerAfterCast && !gRequestedSpell &&
             !(player->human_ai && player->human_ai->IsInCastAni())) {
@@ -1176,8 +1257,10 @@ namespace {
             // Holding LMB can re-arm after the previous cooldown expires.
             RaiseWand(out.selected);
         }
-        if (out.aiming && gAiming && gManaPrepared && !gRequestedSpell && player->GetSpellBook() &&
-            gCooldown.ReadyByTime(out.selected, now)) {
+        // HP2: missing costs nothing. Invest (and spend mana) only while a
+        // valid target is under the reticle.
+        if (out.aiming && gAiming && gManaPrepared && !gRequestedSpell && target &&
+            player->GetSpellBook() && gCooldown.ReadyByTime(out.selected, now)) {
             // Gothic invests mana internally. Keep the prepared cast valid
             // even if the visible mana counter reaches zero mid-charge.
             player->GetSpellBook()->Spell_Invest();
