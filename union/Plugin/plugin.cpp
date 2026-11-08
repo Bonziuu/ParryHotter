@@ -59,6 +59,12 @@ namespace {
     void NotifyCastResult(int slot, bool success);
     bool OwnsMagicInput();
     bool CastRequestPending();
+    int gOwnMagicCall = 0;
+    struct OwnMagicCall {
+        OwnMagicCall() { ++gOwnMagicCall; }
+        ~OwnMagicCall() { --gOwnMagicCall; }
+    };
+    bool DriveNativeMagic();
 }
 
 namespace Gothic_I_Classic {
@@ -102,8 +108,14 @@ namespace Gothic_I_Classic {
         ParryControls::maskNativeLeft = own && ParryControls::mouseGuard.StripsLeft();
         ParryControls::maskNativeRight = own && ParryControls::mouseGuard.StripsRight();
         if (this->npc && this->npc == player) LogJumpInput(this);
+        const bool driving = own && DriveNativeMagic();
         ParryControls::BeforeHumanAI(this);
-        THISCALL(Ivk_PH_HumanAI)(vob, state);
+        if (driving) {
+            OwnMagicCall nativeMagic;
+            THISCALL(Ivk_PH_HumanAI)(vob, state);
+        } else {
+            THISCALL(Ivk_PH_HumanAI)(vob, state);
+        }
         ParryControls::AfterHumanAI(this);
         ParryControls::maskNativeLeft = ParryControls::maskNativeRight = false;
     }
@@ -121,7 +133,8 @@ namespace Gothic_I_Classic {
         // While a cast request is pending the native magic AI must run: it
         // turns the shoot animation into the actual oCSpell::Cast. LMB is
         // masked during the player's DoAI, so it cannot start a new invest.
-        if (npc == player && OwnsMagicInput() && !CastRequestPending()) return 1;
+        // Driven through logical keys (DriveNativeMagic); never blocked.
+        (void)&OwnsMagicInput;
         return THISCALL(Ivk_PH_MagicMode)();
     }
     auto& Ivk_PH_CameraAI = UnionCore::CreateHook(
@@ -223,6 +236,18 @@ namespace {
     constexpr std::array<bool, ParryHotter::kSpellCount> kInstantSpell{{
         false, true, true, false, false, false, false, false, false, false
     }};
+
+    // Native cast keys are held while LMB charges an invest spell at a target.
+    bool gChargeKeys = false;
+    bool gNativeKeysDown = false;
+    void SetNativeCastKeys(bool down) {
+        if (!zinput) return;
+        if (down || gNativeKeysDown) {
+            zinput->SetState(GAME_ACTION, down ? 1 : 0);
+            zinput->SetState(GAME_UP, down ? 1 : 0);
+        }
+        gNativeKeysDown = down;
+    }
     constexpr std::array<int, ParryHotter::kSpellCount> kHotkeys{{
         KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0
     }};
@@ -257,11 +282,6 @@ namespace {
     // twice on its own while LMB was held at a wall (no plugin request),
     // provoking the gate guards. Outside this scope the player's spells
     // neither invest nor cast while the plugin owns magic input.
-    int gOwnMagicCall = 0;
-    struct OwnMagicCall {
-        OwnMagicCall() { ++gOwnMagicCall; }
-        ~OwnMagicCall() { --gOwnMagicCall; }
-    };
 
     bool BlocksForeignPlayerMagic(oCSpell* spell) {
         return spell && player && spell->spellCasterNpc == player &&
@@ -781,6 +801,36 @@ namespace {
     bool gManaPrepared = false;
     bool OwnsMagicInput() { return gAiming && ParryControls::ContextAvailable(); }
     bool CastRequestPending() { return gRequestedSpell != nullptr; }
+
+    // Gothic I's own magic AI (oCAIHuman::MagicMode) invests while ACTION and
+    // UP are both pressed and fires on their release; it then plays the
+    // shoot animation and casts at the focus. LMB is not bound to ACTION while
+    // we own input, so these logical keys are driven only from here, right
+    // before the player's native AI step. Returns true while driving.
+    bool DriveNativeMagic() {
+        if (!gAiming || !player) {
+            SetNativeCastKeys(false);
+            return false;
+        }
+        bool hold = gChargeKeys;
+        if (gRequestedSpell) {
+            const int status = gRequestedSpell->GetSpellStatus();
+            const bool instant = gRequestedSlot >= 0 &&
+                gRequestedSlot < ParryHotter::kSpellCount && kInstantSpell[gRequestedSlot];
+            // Instant spells fire while the keys are down; invest spells fire
+            // on release, which needs at least one invested mana point.
+            hold = instant ? !gCastConfirmed
+                           : (status == SPL_STATUS_DONTINVEST ||
+                              gRequestedSpell->manaInvested <= 0);
+            if (gRequestedTarget) {
+                player->SetFocusVob(static_cast<zCVob*>(gRequestedTarget));
+                gRequestedSpell->spellTarget = gRequestedTarget;
+                gRequestedSpell->spellTargetNpc = gRequestedTarget;
+            }
+        }
+        SetNativeCastKeys(hold);
+        return hold || gRequestedSpell;
+    }
     void NotifyCastResult(int slot, bool success) {
         if (success) {
             gCooldown.MarkPreparedCast(slot, ParryHotter::SpellCooldown::Clock::now());
@@ -1202,6 +1252,8 @@ namespace {
 
     void LowerWand() {
         ClearQueuedCast();
+        gChargeKeys = false;
+        SetNativeCastKeys(false);
         if (gAiming || gRequestedSpell) gLog.Line("lower wand aiming=%d request=%d",
                                                   gAiming ? 1 : 0, gRequestedSpell ? 1 : 0);
         gLowerAfterCast = false;
@@ -1269,12 +1321,8 @@ namespace {
             return CastAttempt::Refused;
         }
         const int status = spell->GetSpellStatus();
-        const bool preparing = player->human_ai && player->human_ai->IsInCastAni();
-        if (status == SPL_STATUS_DONTINVEST && (!kInstantSpell[slot] || preparing)) {
-            // The native prepare/invest animation has not reached a castable
-            // point yet (a quick HP2 tap). The caller queues the cast.
-            return CastAttempt::NotReady;
-        }
+        // DONTINVEST (prepare animation running) is fine: the native magic
+        // AI keeps the cast keys pressed until it can invest, then releases.
         if (status == SPL_STATUS_STOP) {
             gLog.Line("cast slot=%d REFUSED spellStatus=%d", slot, status);
             return CastAttempt::Refused;
@@ -1292,24 +1340,15 @@ namespace {
         spell->AddRef();
         target->AddRef();
         gRequestExpires = ParryHotter::CastLedger::Clock::now() +
-            std::chrono::seconds(2);
+            std::chrono::seconds(4);
         gCastConfirmed = false;
-        if (player->human_ai) {
-            ParryCasting::Bind(player->human_ai, player->GetModel());
-            player->human_ai->TransitionToCast();
-        }
-        gLog.Line("cast slot=%d REQUEST target=%p status=%d", slot,
-                  static_cast<void*>(target), status);
-        {
-            OwnMagicCall own;
-            spellbook->Spell_Cast();
-        }
-        gLog.Line("cast slot=%d after Spell_Cast confirmed=%d pending=%d", slot,
-                  gCastConfirmed ? 1 : 0, gRequestedSpell ? 1 : 0);
-        // The native animation may call oCSpell::Cast on a later frame.
-        // Its hook is the sole place that starts the cooldown on success.
-        return (gCastConfirmed || gRequestedSpell != nullptr)
-            ? CastAttempt::Requested : CastAttempt::Refused;
+        gChargeKeys = false;
+        // Gothic I casts with ACTION + UP held, released to fire (see
+        // DriveNativeMagic). The native magic AI then plays the shoot
+        // animation and calls oCSpell::Cast, whose hook confirms the cast.
+        gLog.Line("cast slot=%d REQUEST target=%p status=%d invested=%d", slot,
+                  static_cast<void*>(target), status, spell->manaInvested);
+        return CastAttempt::Requested;
     }
 
     CastAttempt CastAtCenteredNpc(int slot) {
@@ -1480,14 +1519,27 @@ namespace {
             // Holding LMB can re-arm after the previous cooldown expires.
             RaiseWand(out.selected);
         }
-        // HP2: missing costs nothing. Invest (and spend mana) only while a
-        // valid target is under the reticle.
+        // HP2: missing costs nothing. An invest spell starts charging (the
+        // native AI invests mana while ACTION+UP are held) only once the dot
+        // is on a valid target; then it keeps charging until LMB is released.
+        // Releasing on a target casts (CastAtNpc), elsewhere it cancels.
         if (out.aiming && gAiming && gManaPrepared && !gRequestedSpell && target &&
-            player->GetSpellBook() && gCooldown.ReadyByTime(out.selected, now)) {
-            // Gothic invests mana internally. Keep the prepared cast valid
-            // even if the visible mana counter reaches zero mid-charge.
-            OwnMagicCall own;
-            player->GetSpellBook()->Spell_Invest();
+            !kInstantSpell[out.selected] && gCooldown.ReadyByTime(out.selected, now)) {
+            if (!gChargeKeys) gLog.Line("charge slot=%d start", out.selected);
+            gChargeKeys = true;
+        }
+        if (!gAiming) gChargeKeys = false;
+        if (gRequestedSpell) {
+            static int lastStatus = -2, lastInvested = -1;
+            const int status = gRequestedSpell->GetSpellStatus();
+            if (status != lastStatus || (gRequestedSpell->manaInvested > 0) != (lastInvested > 0)) {
+                gLog.Line("cast slot=%d native status=%d invested=%d keys=%d castAni=%d",
+                          gRequestedSlot, status, gRequestedSpell->manaInvested,
+                          gNativeKeysDown ? 1 : 0,
+                          player->human_ai && player->human_ai->IsInCastAni() ? 1 : 0);
+                lastStatus = status;
+                lastInvested = gRequestedSpell->manaInvested;
+            }
         }
     }
 } // anonymous namespace
