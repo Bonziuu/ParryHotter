@@ -213,6 +213,13 @@ def main() -> int:
 
     # Icons are built from original source art with Python's standard library.
     # Raw TGA files are used in development and packed into .mod for release.
+    try:
+        from tools.polish_system import install_polish_system
+        install_polish_system(args.game, zip_path=args.zip_path)
+    except (PatchError, OSError, zipfile.BadZipFile) as exc:
+        print(f"Nie udalo sie spolszczyc menu (skrypty System): {exc}")
+        print("Pozostale skrypty Parry Hotter sa zainstalowane; menu zostaje w jezyku gry.")
+
     sprite_folder = args.game / "_work" / "Data" / "Textures"
     sprites = generate_hud_textures(sprite_folder)
     print(f"Wygenerowano {len(sprites)} oryginalnych ikon HUD: {sprite_folder}")
