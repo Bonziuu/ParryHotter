@@ -3,6 +3,9 @@
 // The file is truncated on the first line of each game session and capped,
 // so it can never grow without bound. Pure C++17 (portable tests).
 #pragma once
+#ifdef _MSC_VER
+#include <share.h>
+#endif
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
@@ -47,8 +50,9 @@ private:
         if (opened_) return false; // never reopen (and truncate) mid-session
         opened_ = true;
 #if defined(_MSC_VER)
-        // MSVC (SDL checks) rejects fopen as C4996; fopen_s is equivalent.
-        if (fopen_s(&file_, path_, "w") != 0) file_ = nullptr;
+        // fopen_s opens the file exclusively, so it could not be read while
+        // the game ran. _fsopen with _SH_DENYWR keeps it readable.
+        file_ = _fsopen(path_, "w", _SH_DENYWR);
 #else
         file_ = std::fopen(path_, "w");
 #endif
