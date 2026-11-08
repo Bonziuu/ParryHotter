@@ -39,7 +39,7 @@
 #include <vector>
 namespace Gothic_I_Classic {
 struct zVEC3 { float a[3]; zVEC3(float x=0,float y=0,float z=0):a{x,y,z}{} float& operator[](int n){return a[n];} float operator[](int n)const{return a[n];} };
-struct zCVob { zVEC3 at{0,0,1},position; int begin=0,end=0; float biggestStep=0; zVEC3 GetAtVectorWorld(){return at;} void BeginMovement(){++begin;} void EndMovement(){++end;} void MoveWorld(float x,float y,float z){position[0]+=x;position[1]+=y;position[2]+=z;biggestStep=std::max(biggestStep,std::hypot(x,z));} void SetHeadingYWorld(zVEC3 p){at=p;} void RotateWorldY(float d){float angle=std::atan2(at[0],at[2])+d*0.01745329252f;at=zVEC3(std::sin(angle),0,std::cos(angle));} };
+struct zCVob { zVEC3 at{0,0,1},position; int begin=0,end=0; float biggestStep=0; zVEC3 GetAtVectorWorld(){return at;} zVEC3 GetPositionWorld(){return position;} void SetPositionWorld(zVEC3 p){position=p;} void BeginMovement(){++begin;} void EndMovement(){++end;} void MoveWorld(float x,float y,float z){position[0]+=x;position[1]+=y;position[2]+=z;biggestStep=std::max(biggestStep,std::hypot(x,z));} void SetHeadingYWorld(zVEC3 p){at=p;} void RotateWorldY(float d){float angle=std::atan2(at[0],at[2])+d*0.01745329252f;at=zVEC3(std::sin(angle),0,std::cos(angle));} };
 struct zCModelAni {};
 struct zCModel { zVEC3 aniTransScale{1,1,1}; zCModelAni ani; bool active=false; zCModelAni* GetAniFromAniID(int){return &ani;} int IsAniActive(zCModelAni*){return active;} };
 struct zCRigidBody { zVEC3 v; void SetVelocity(zVEC3 p){v=p;} };

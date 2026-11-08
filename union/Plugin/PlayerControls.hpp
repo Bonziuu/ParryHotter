@@ -56,6 +56,11 @@ inline bool mouseConsumed = false;
 // second here): each poll resets the mouse delta and the key-toggle table.
 // Mouse movement is therefore summed over polls until the camera uses it,
 // and a number key stays latched until the spell HUD consumes it.
+// Last position where Harry stood on (not inside) the floor. If the engine
+// lets him sink through the terrain he is put back instead of falling out
+// of the world.
+inline zVEC3 lastSafePosition;
+inline bool hasSafePosition = false;
 inline float pendingMouseX = 0.0f;
 inline float pendingMouseY = 0.0f;
 inline int pendingSlot = 0;
@@ -222,6 +227,7 @@ inline void Forget() {
     locomotion.Step({});
     input = {};
     planarX = planarZ = nativeJumpBuffer = 0.0f;
+    hasSafePosition = false;
     previousJump = ownsInput = mouseConsumed = false;
     pendingMouseX = pendingMouseY = 0.0f;
     pendingSlot = 0;
@@ -317,7 +323,7 @@ inline void UpdateCamera(zCAICamera* camera) {
         mouseConsumed ? 0.0f : input.mouseX,
         mouseConsumed ? 0.0f : input.mouseY,
         initialCameraYaw, initialCameraPitch,
-        (input.forward != 0.0f || input.right != 0.0f) && !input.leftHeld});
+        false}); // free look while moving (no pitch auto-centre)
     mouseConsumed = true;
     pendingMouseX = pendingMouseY = 0.0f;
     currentCameraYaw = view.yawDegrees;
@@ -356,6 +362,16 @@ inline void BeforeHumanAI(oCAIHuman* ai) {
     if (ai->IsInWater() || ai->state == zCAIPlayer::zMV_STATE_SWIM ||
         ai->state == zCAIPlayer::zMV_STATE_DIVE) { Disable(); return; }
     movementDelta = FrameSeconds();
+    if (ai->state == zCAIPlayer::zMV_STATE_STAND && ai->aboveFloor >= -10.0f &&
+        ai->aboveFloor <= 20.0f) {
+        lastSafePosition = player->GetPositionWorld();
+        hasSafePosition = true;
+    } else if (hasSafePosition && ai->aboveFloor < -45.0f) {
+        // Feet far below the floor under him: he went through the ground.
+        player->SetPositionWorld(lastSafePosition);
+        planarX = planarZ = 0.0f;
+        return;
+    }
     const bool grounded = ai->state == zCAIPlayer::zMV_STATE_STAND &&
                           ai->aboveFloor >= -8.0f && ai->aboveFloor <= 14.0f;
     pendingMove = locomotion.Step({true, movementDelta, currentCameraYaw,
@@ -427,6 +443,16 @@ inline void AfterHumanAI(oCAIHuman* ai) {
     for (int i = 0; i < steps; ++i) {
         player->BeginMovement();
         player->MoveWorld(x / steps, 0.0f, z / steps);
+        player->EndMovement();
+    }
+    // Gothic does not start a fall during a spell animation, so carrying
+    // Harry over an edge while casting left him hanging in the air. Lower
+    // him onto the floor beneath instead (at most a fall speed per frame).
+    if ((input.leftHeld || ai->IsInCastAni()) &&
+        ai->state == zCAIPlayer::zMV_STATE_STAND && ai->aboveFloor > 20.0f) {
+        const float drop = std::min(ai->aboveFloor, 900.0f * movementDelta);
+        player->BeginMovement();
+        player->MoveWorld(0.0f, -drop, 0.0f);
         player->EndMovement();
     }
 }

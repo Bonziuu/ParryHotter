@@ -321,7 +321,9 @@ namespace {
     float gCameraDistance = 0.0f;
     void PlaceHp2Camera(zCAICamera* camera) {
         constexpr float kDistance = 300.0f;   // cm behind the pivot
-        constexpr float kAboveHead = 15.0f;   // pivot above the bounding box top
+        // The view line passes this far above Harry's head, so he stands
+        // below the centre dot (HP2) instead of covering it.
+        constexpr float kAboveHead = 75.0f;
         constexpr float kWallGap = 25.0f;     // keep the near plane out of walls
         constexpr float kMinDistance = 40.0f;
         if (!camera || camera != zCAICamera::current || !camera->camVob || !player ||
@@ -1114,8 +1116,10 @@ namespace {
         const zVEC3 eye = cameraVob->GetPositionWorld();
         zVEC3 ray = direction;
         ray *= zVEC3(1900.0f);
-        const int flags = zTRACERAY_VOB_BBOX |
-                          zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
+        // Nearest hit (no FIRSTHIT): any first-found far polygon must not
+        // hide an NPC standing right under the dot.
+        const int flags = zTRACERAY_VOB_BBOX | zTRACERAY_STAT_POLY |
+                          zTRACERAY_POLY_IGNORE_TRANSP;
         auto state = ParryHotter::AimTargetState::NoRayHit;
         if (world->TraceRayNearestHit(eye, ray, static_cast<zCVob*>(player), flags)) {
             oCNpc* npc = zDYNAMIC_CAST<oCNpc>(world->traceRayReport.foundVob);
