@@ -20,7 +20,19 @@ int main() {
     for (int i = 0; i < 28; ++i) aiming.Update(&cam, true);
     assert(aiming.IsActive());
     assert(cam.bestRange < 280.0f && cam.bestRange > 240.0f);
-    assert(cam.focusOffsetX > 32.0f && cam.focusOffsetX < 39.0f);
+    assert(close(cam.focusOffsetX, 0.0f)); // no shoulder shift
+
+    // Gothic scripts use meters (CAMMODNORMAL bestRange = 2.5). Aiming must
+    // stay relative and never jump to an absolute centimeter clamp.
+    {
+        ParryHotter::AimCamera meters;
+        GothicCameraStub m;
+        m.bestRange = 2.5f;
+        for (int i = 0; i < 60; ++i) meters.Update(&m, true);
+        assert(m.bestRange > 2.0f && m.bestRange < 2.5f);
+        meters.Restore(&m);
+        assert(close(m.bestRange, 2.5f));
+    }
 
     // Camera returns to original settings when PPM is released.
     for (int i = 0; i < 35; ++i) aiming.Update(&cam, false);

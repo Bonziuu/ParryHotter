@@ -20,6 +20,9 @@ struct FreeCameraInput {
     float mouseDeltaY = 0.0f;
     float initialYawDegrees = 0.0f;
     float initialPitchDegrees = 0.0f;
+    // HP2: while Harry walks and is not aiming, the camera eases back to a
+    // slightly downward view and vertical mouse movement is ignored.
+    bool autoCenter = false;
 };
 
 struct FreeCameraOutput {
@@ -32,9 +35,12 @@ class FreeCamera final {
 public:
     struct Settings {
         float sensitivity = 0.14f; // degrees per relative mouse unit
-        float minPitch = -60.0f;
-        float maxPitch = 65.0f;
-        float smoothing = 24.0f; // inverse seconds; zero disables smoothing
+        // HP2 (PC) BaseCam: pitch limited to +-14000 rotator units (~77 deg),
+        // rotation tightness 8 per second, auto-center pitch -1500 (~-8.2 deg).
+        float minPitch = -77.0f;
+        float maxPitch = 77.0f;
+        float smoothing = 8.0f; // inverse seconds; zero disables smoothing
+        float autoCenterPitch = -8.24f;
         bool invertY = false;
     };
 
@@ -55,9 +61,14 @@ public:
         targetYaw_ = WrapDegrees(targetYaw_ +
                                 Finite(input.mouseDeltaX) * settings_.sensitivity);
         const float ySign = settings_.invertY ? 1.0f : -1.0f;
-        targetPitch_ = std::clamp(targetPitch_ +
-                                 Finite(input.mouseDeltaY) * settings_.sensitivity * ySign,
-                                 settings_.minPitch, settings_.maxPitch);
+        if (input.autoCenter) {
+            targetPitch_ = std::clamp(settings_.autoCenterPitch,
+                                     settings_.minPitch, settings_.maxPitch);
+        } else {
+            targetPitch_ = std::clamp(targetPitch_ +
+                                     Finite(input.mouseDeltaY) * settings_.sensitivity * ySign,
+                                     settings_.minPitch, settings_.maxPitch);
+        }
         const float dt = std::clamp(Finite(input.deltaSeconds), 0.0f, 0.1f);
         const float blend = settings_.smoothing <= 0.0f ? 1.0f
             : 1.0f - std::exp(-settings_.smoothing * dt);

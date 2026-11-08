@@ -8,8 +8,10 @@ namespace ParryHotter {
 
 class AimCamera {
 public:
-    // Gothic 1 coordinates use centimeters. Never change the near/far
-    // collision clipping planes or overwrite scripted/cutscene camera modes.
+    // Unit-agnostic: works on whatever unit zCAICamera::bestRange holds.
+    // Never change the near/far collision clipping planes or overwrite
+    // scripted/cutscene camera modes. Harry Potter 2 does not reframe the
+    // camera while aiming, so the plugin currently never requests aiming.
     template <typename Camera>
     void Update(Camera* camera, bool aiming, float deltaSeconds = 1.0f / 60.0f) {
         if (!camera) {
@@ -27,12 +29,11 @@ public:
         }
         if (!captured_) return;
 
-        const float proposed = savedRange_ * 0.82f;
-        const float safeRange = proposed < 175.0f ? 175.0f
-                              : proposed > 290.0f ? 290.0f : proposed;
-        const float goalRange = aiming ? safeRange : savedRange_;
-        const float goalShoulder = aiming
-            ? savedShoulder_ + 38.0f : savedShoulder_;
+        // Relative only: Gothic camera scripts define bestRange in METERS
+        // (CAMMODNORMAL 2.5). The former absolute 175..290 clamp assumed
+        // centimeters and could throw the camera ~175 m away while aiming.
+        const float goalRange = aiming ? savedRange_ * 0.82f : savedRange_;
+        const float goalShoulder = savedShoulder_;
 
         const float dt = std::isfinite(deltaSeconds)
             ? std::clamp(deltaSeconds, 0.0f, 0.1f) : 0.0f;

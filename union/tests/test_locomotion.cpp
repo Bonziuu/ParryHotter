@@ -26,7 +26,7 @@ int main() {
     auto diagonal = simulate(1.0f / 60, 60, 1, 1);
     assert(close(std::hypot(cardinal.velocityX, cardinal.velocityZ), 650));
     assert(close(std::hypot(diagonal.velocityX, diagonal.velocityZ), 650));
-    assert(close(diagonal.facingYawDegrees, 45));
+    assert(close(diagonal.facingYawDegrees, 0)); // HP2: faces the camera, W+D walks diagonally
     auto lowFps = simulate(1.0f / 30, 3, 1, 0);
     auto highFps = simulate(1.0f / 120, 12, 1, 0);
     assert(close(lowFps.velocityZ, highFps.velocityZ));

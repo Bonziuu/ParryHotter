@@ -32,7 +32,9 @@
 #define GAME_STRAFERIGHT 19
 #define GAME_SMOVE 11
 #define GAME_SMOVE2 12
+#define MOUSE_BUTTONLEFT 522
 #define MOUSE_BUTTONRIGHT 523
+#define KEY_LCONTROL 29
 #define KEY_LMENU 56
 #include <vector>
 namespace Gothic_I_Classic {
@@ -68,23 +70,35 @@ using namespace Gothic_I_Classic;
 int main(){
  oCNpc pc;oCGame game;zCInput_Win32 controls;zCVob camvob;zCAICamera cam;cam.camVob=&camvob;
  player=&pc;ogame=&game;zinput=&controls;zCAICamera::current=&cam;oCAIHuman ai;ai.npc=&pc;
- // RMB is removed from native jump while spells own it; Alt keeps jumping.
+ // HP2 controls: LMB leaves native ACTION (Ctrl stays), RMB leaves native
+ // jump (Alt stays) and becomes our jump.
+ using V=std::vector<unsigned short>;
  controls.bindings[GAME_SMOVE]={KEY_LMENU,MOUSE_BUTTONRIGHT};
+ controls.bindings[GAME_ACTION]={KEY_LCONTROL,MOUSE_BUTTONLEFT};
  controls.bindings[GAME_UP]={KEY_W};
  ParryControls::CaptureInput(&controls);
- assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU}));
- assert((controls.bindings[GAME_UP]==std::vector<unsigned short>{KEY_W}));
+ assert((controls.bindings[GAME_SMOVE]==V{KEY_LMENU}));
+ assert((controls.bindings[GAME_ACTION]==V{KEY_LCONTROL}));
+ assert((controls.bindings[GAME_UP]==V{KEY_W}));
  const int bindsAfterEngage=controls.bindCalls;
  ParryControls::CaptureInput(&controls); assert(controls.bindCalls==bindsAfterEngage); // idempotent
+ controls.right=true; ParryControls::CaptureInput(&controls);
+ assert(ParryControls::GetInput().jumpHeld); // RMB jumps through locomotion
+ controls.right=false;
  game.paused=true; ParryControls::CaptureInput(&controls);
- assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU,MOUSE_BUTTONRIGHT})); // exact order restored for menus
+ assert((controls.bindings[GAME_SMOVE]==V{KEY_LMENU,MOUSE_BUTTONRIGHT})); // exact order restored for menus
+ assert((controls.bindings[GAME_ACTION]==V{KEY_LCONTROL,MOUSE_BUTTONLEFT}));
  game.paused=false; ParryControls::CaptureInput(&controls);
- assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU}));
- controls.toggled[KEY_F11]=1; ParryControls::CaptureInput(&controls); // native movement: spells still own RMB
- assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU}));
+ assert((controls.bindings[GAME_SMOVE]==V{KEY_LMENU}));
+ controls.toggled[KEY_F11]=1; ParryControls::CaptureInput(&controls); // F11 native movement
+ ParryControls::CaptureInput(&controls);
+ assert((controls.bindings[GAME_SMOVE]==V{KEY_LMENU,MOUSE_BUTTONRIGHT})); // native RMB jump back
+ assert((controls.bindings[GAME_ACTION]==V{KEY_LCONTROL})); // spells keep LMB
  controls.toggled[KEY_F11]=1; ParryControls::CaptureInput(&controls);
+ assert((controls.bindings[GAME_SMOVE]==V{KEY_LMENU}));
  ParryControls::ReleaseNativeBindings();
- assert((controls.bindings[GAME_SMOVE]==std::vector<unsigned short>{KEY_LMENU,MOUSE_BUTTONRIGHT}));
+ assert((controls.bindings[GAME_SMOVE]==V{KEY_LMENU,MOUSE_BUTTONRIGHT}));
+ assert((controls.bindings[GAME_ACTION]==V{KEY_LCONTROL,MOUSE_BUTTONLEFT}));
  ParryControls::Reset();
  controls.keys[KEY_W]=1;controls.keys[KEY_D]=1;controls.toggled[KEY_0]=1;
  ParryControls::CaptureInput(&controls);assert(ParryControls::OwnsInput());assert(ParryControls::GetInput().slotPressed==10);assert(controls.states[GAME_UP]==0);
@@ -108,14 +122,14 @@ int main(){
  pc.openinventory=true;ParryControls::CaptureInput(&controls);assert(!ParryControls::OwnsInput());
  pc.openinventory=false;controls.toggled[KEY_F11]=1;ParryControls::CaptureInput(&controls);assert(!ParryControls::OwnsInput());
  assert(ParryControls::ContextAvailable()); // F11 does not disable the spell safety context.
- controls.right=true;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
+ controls.left=true;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
  assert(!ParryControls::OwnsInput()&&controls.states[GAME_ACTION]==0); // Native action cannot also handle a spell click with F11 off.
  pc.body=BS_UNCONSCIOUS;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
  assert(!ParryControls::ContextAvailable()&&controls.states[GAME_ACTION]==1);
- pc.body=BS_STAND;controls.right=false;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
- assert(controls.states[GAME_ACTION]==1); // Ordinary action input remains native without RMB.
+ pc.body=BS_STAND;controls.left=false;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
+ assert(controls.states[GAME_ACTION]==1); // Ordinary action input remains native without LMB.
  controls.toggled[KEY_F11]=1;ParryControls::CaptureInput(&controls);assert(ParryControls::OwnsInput());
- controls.right=true;
+ controls.left=true;
  for(const int state:{BS_MOD_TRANSFORMED,BS_MOD_CONTROLLED,BS_MOD_CONTROLLING,BS_SWIM,BS_CLIMB,BS_UNCONSCIOUS}){
    pc.body=state;controls.states[GAME_ACTION]=1;ParryControls::CaptureInput(&controls);
    assert(!ParryControls::ContextAvailable()&&!ParryControls::OwnsInput());

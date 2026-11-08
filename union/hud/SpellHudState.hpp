@@ -59,62 +59,52 @@ struct Output {
 
 class Controller final {
 public:
+    // Harry Potter 2 (PC) scheme: hold LMB to raise the wand and aim, the
+    // spell's symbol appears on a valid target, and RELEASING LMB casts at
+    // the target under the reticle. RMB is jump (handled by locomotion).
     Output Step(Input in) {
         Output out{};
         if (!in.gameplay) {
             out.stopAim = previousAim_;
             previousAim_ = false;
-            previousLeft_ = false;
-            leftReleasedSinceAim_ = false;
-            // After a menu/cutscene we must see RMB released once. Otherwise
-            // holding both buttons while returning could accidentally fire.
-            requireRightRelease_ = true;
+            // After a menu, cutscene or load, LMB must be seen released
+            // once; a button held through the interruption never aims/casts.
+            requireLeftRelease_ = true;
             out.selected = selected_;
             return out;
         }
         if (in.slotPressed >= 1 && in.slotPressed <= kSpellCount) {
             selected_ = in.slotPressed - 1;
         }
-        if (!in.rightHeld) requireRightRelease_ = false;
-        const bool aiming = in.rightHeld && !requireRightRelease_ && kSpellAvailable[selected_];
+        if (!in.leftHeld) requireLeftRelease_ = false;
+        const bool holding = in.leftHeld && !requireLeftRelease_;
+        const bool aiming = holding && kSpellAvailable[selected_];
         out.hudVisible = true;
         out.selected = selected_;
         out.aiming = aiming;
         out.targetSymbolVisible = aiming && in.hasLiveNpcTarget;
         out.startAim = aiming && !previousAim_;
         out.stopAim = !aiming && previousAim_;
-
-        // Requirement: press RMB first, RELEASE LMB while aiming, then make
-        // a new LMB click. Simultaneous RMB+LMB must never fire.
-        if (!aiming || out.startAim)
-            leftReleasedSinceAim_ = false;
-        else if (!in.leftHeld)
-            leftReleasedSinceAim_ = true;
-
-        out.cast = aiming && previousAim_ && leftReleasedSinceAim_
-                   && in.leftHeld && !previousLeft_
-                   && in.hasLiveNpcTarget;
+        // Only a real release of an aiming LMB casts. Switching to an empty
+        // slot while holding stops aiming without casting.
+        out.cast = previousAim_ && !in.leftHeld && in.hasLiveNpcTarget &&
+                   kSpellAvailable[selected_];
         previousAim_ = aiming;
-        previousLeft_ = in.leftHeld;
         return out;
     }
     int Selected() const { return selected_; }
     void Reset() {
         selected_ = 0;
         previousAim_ = false;
-        previousLeft_ = false;
-        leftReleasedSinceAim_ = false;
-        requireRightRelease_ = false;
+        requireLeftRelease_ = false;
     }
     void ResetAfterInterruption() {
         Reset();
-        requireRightRelease_ = true;
+        requireLeftRelease_ = true;
     }
 private:
     int selected_ = 0;
     bool previousAim_ = false;
-    bool previousLeft_ = false;
-    bool leftReleasedSinceAim_ = false;
-    bool requireRightRelease_ = false;
+    bool requireLeftRelease_ = false;
 };
 } // namespace ParryHotter

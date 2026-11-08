@@ -39,5 +39,19 @@ int main() {
     out = camera.Step({true, std::numeric_limits<float>::quiet_NaN(),
                        std::numeric_limits<float>::infinity(), 0, 0, 0});
     assert(std::isfinite(out.yawDegrees) && std::isfinite(out.pitchDegrees));
+    // HP2 auto-center: walking without aiming eases the pitch to ~-8.2 deg
+    // and ignores vertical mouse; standing/aiming gives pitch back to mouse.
+    {
+        FreeCamera hp2(settings);
+        hp2.Step({true, 1.0f / 60, 0, 0, 0, 30});
+        FreeCameraInput walk{true, 1.0f / 60, 0, -500, 0, 30, true};
+        out = hp2.Step(walk);
+        assert(close(out.pitchDegrees, settings.autoCenterPitch));
+        out = hp2.Step({true, 1.0f / 60, 0, -50, 0, 30, false});
+        assert(close(out.pitchDegrees, settings.autoCenterPitch + 7));
+    }
+    // Default smoothing follows HP2's rotation tightness (8 per second).
+    assert(close(FreeCamera::Settings{}.smoothing, 8.0f));
+    assert(close(FreeCamera::Settings{}.maxPitch, 77.0f));
     std::cout << "Parry Hotter free mouse orbit and pitch limits: OK\n";
 }

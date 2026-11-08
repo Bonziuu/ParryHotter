@@ -36,9 +36,11 @@ public:
     struct Settings {
         float runSpeed = 650.0f;
         float aimSpeed = 450.0f;
-        float groundAcceleration = 4200.0f;
+        // HP2 (PC) reaches full speed in about 0.2 s (AccelRate 1024 at
+        // GroundSpeed 210) and steers in the air at 25% (AirControl 0.25).
+        float groundAcceleration = 3250.0f;
         float groundBraking = 5000.0f;
-        float airAcceleration = 2600.0f;
+        float airAcceleration = 812.5f;
         float airBraking = 120.0f;
         float coyoteSeconds = 0.12f;
         float jumpBufferSeconds = 0.15f;
@@ -103,9 +105,10 @@ public:
             coyoteRemaining_ = 0.0f;
             jumpConsumed_ = true;
         }
-        const bool hasFacing = input.aiming || hasInput;
-        const float facing = input.aiming ? Finite(input.cameraYawDegrees)
-            : hasInput ? std::atan2(desiredX, desiredZ) * 57.29577951f : 0.0f;
+        // HP2 standard camera: Harry always faces where the camera looks
+        // (mouse turns him, even standing); A/D strafe, S walks backwards.
+        const bool hasFacing = true;
+        const float facing = Finite(input.cameraYawDegrees);
         return {true, velocityX, velocityZ, hasFacing, WrapDegrees(facing), jump};
     }
 

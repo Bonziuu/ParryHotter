@@ -77,13 +77,16 @@ namespace Gothic_I_Classic {
     auto& Ivk_PH_HumanAI = UnionCore::CreateHook(
         &oCAIHuman::DoAI, &oCAIHuman::PH_DoAI, UnionCore::Hook_Auto);
     void oCAIHuman::PH_DoAI(zCVob* vob, int& state) {
-        // Hide RMB from the player's native AI only (RMB + W jumped in-game).
-        ParryControls::maskNativeRmb = this->npc && this->npc == player &&
-            ParryControls::rmbGuard.Engaged() && ParryControls::ContextAvailable();
+        // Hide owned mouse buttons from the player's native AI only
+        // (RMB + W jumped in-game; LMB would attack).
+        const bool own = this->npc && this->npc == player &&
+            ParryControls::ContextAvailable();
+        ParryControls::maskNativeLeft = own && ParryControls::mouseGuard.StripsLeft();
+        ParryControls::maskNativeRight = own && ParryControls::mouseGuard.StripsRight();
         ParryControls::BeforeHumanAI(this);
         THISCALL(Ivk_PH_HumanAI)(vob, state);
         ParryControls::AfterHumanAI(this);
-        ParryControls::maskNativeRmb = false;
+        ParryControls::maskNativeLeft = ParryControls::maskNativeRight = false;
     }
     auto& Ivk_PH_WeaponChoose = UnionCore::CreateHook(
         &oCAIHuman::WeaponChoose, &oCAIHuman::PH_WeaponChoose, UnionCore::Hook_Auto);
@@ -95,7 +98,7 @@ namespace Gothic_I_Classic {
     auto& Ivk_PH_MagicMode = UnionCore::CreateHook(
         &oCAIHuman::MagicMode, &oCAIHuman::PH_MagicMode, UnionCore::Hook_Auto);
     int oCAIHuman::PH_MagicMode() {
-        // Invest/cast are driven exactly once by our PPM -> LPM controller.
+        // Invest/cast are driven exactly once by our hold-LMB/release controller.
         if (npc == player && OwnsMagicInput()) return 1;
         return THISCALL(Ivk_PH_MagicMode)();
     }
@@ -117,21 +120,31 @@ namespace Gothic_I_Classic {
         &zCInput_Win32::GetMouseButtonPressedRight,
         &zCInput_Win32::PH_GetMouseButtonPressedRight, UnionCore::Hook_Auto);
     int zCInput_Win32::PH_GetMouseButtonPressedRight() {
-        if (ParryControls::maskNativeRmb) return 0;
+        if (ParryControls::maskNativeRight) return 0;
         return THISCALL(Ivk_PH_MouseRight)();
+    }
+
+    auto& Ivk_PH_MouseLeft = UnionCore::CreateHook(
+        &zCInput_Win32::GetMouseButtonPressedLeft,
+        &zCInput_Win32::PH_GetMouseButtonPressedLeft, UnionCore::Hook_Auto);
+    int zCInput_Win32::PH_GetMouseButtonPressedLeft() {
+        if (ParryControls::maskNativeLeft) return 0;
+        return THISCALL(Ivk_PH_MouseLeft)();
     }
 
     auto& Ivk_PH_KeyPressed = UnionCore::CreateHook(
         &zCInput_Win32::KeyPressed, &zCInput_Win32::PH_KeyPressed, UnionCore::Hook_Auto);
     int zCInput_Win32::PH_KeyPressed(int key) {
-        if (ParryControls::maskNativeRmb && key == MOUSE_BUTTONRIGHT) return 0;
+        if ((ParryControls::maskNativeRight && key == MOUSE_BUTTONRIGHT) ||
+            (ParryControls::maskNativeLeft && key == MOUSE_BUTTONLEFT)) return 0;
         return THISCALL(Ivk_PH_KeyPressed)(key);
     }
 
     auto& Ivk_PH_KeyToggled = UnionCore::CreateHook(
         &zCInput_Win32::KeyToggled, &zCInput_Win32::PH_KeyToggled, UnionCore::Hook_Auto);
     int zCInput_Win32::PH_KeyToggled(int key) {
-        if (ParryControls::maskNativeRmb && key == MOUSE_BUTTONRIGHT) return 0;
+        if ((ParryControls::maskNativeRight && key == MOUSE_BUTTONRIGHT) ||
+            (ParryControls::maskNativeLeft && key == MOUSE_BUTTONLEFT)) return 0;
         return THISCALL(Ivk_PH_KeyToggled)(key);
     }
 }
@@ -204,6 +217,8 @@ namespace {
     };
     std::array<CastReferences, ParryHotter::CastLedger::Capacity> gCastReferences{};
     oCSpell* gRequestedSpell = nullptr;
+    // Set by a successful release-cast; the wand lowers once it resolves.
+    bool gLowerAfterCast = false;
     int gRequestedSlot = -1;
     oCNpc* gRequestedTarget = nullptr;
     std::uint64_t gRequestGeneration = 0;
@@ -927,6 +942,7 @@ namespace {
     }
 
     void LowerWand() {
+        gLowerAfterCast = false;
         const bool wasAiming = gAiming;
         auto* actor = player;
         gAiming = false;
@@ -1062,16 +1078,26 @@ namespace {
         ShowSelection(out.selected);
         ShowTarget(out.targetSymbolVisible, out.selected, targetNpc);
         DrawDiagnostics();
-        // Keep the Gothic camera's own mouse rotation and collision.
-        // Our helper only moves the distance/shoulder for spell targeting,
-        // and restores previous values after PPM is released.
-        if (inputAllowed)
-            gCamera.Update(zCAICamera::current, out.aiming, ParryControls::FrameSeconds());
-        else
-            gCamera.Restore(zCAICamera::current);
+        // HP2 keeps the standard camera framing while aiming (no zoom or
+        // shoulder shift). Gothic's CAMMODNORMAL (2.5 m) already matches
+        // HP2's distance, so the framing helper only restores old values.
+        gCamera.Restore(zCAICamera::current);
 
-        if (out.stopAim) {
+        // HP2: the release of LMB both ends aiming and casts. Cast first,
+        // while the wand is still raised and the mana prepared; lower the
+        // wand only after the native cast resolved (confirmed or expired).
+        if (out.cast && gAiming && gManaPrepared &&
+            gCooldown.ReadyByTime(out.selected, now)) {
+            gLowerAfterCast = CastAtCenteredNpc(out.selected);
+        }
+        if (out.startAim) gLowerAfterCast = false;
+        if (out.stopAim && !gLowerAfterCast) {
             LowerWand();
+        }
+        if (gLowerAfterCast && !gRequestedSpell &&
+            !(player->human_ai && player->human_ai->IsInCastAni())) {
+            gLowerAfterCast = false;
+            if (!out.aiming) LowerWand();
         }
         if (out.startAim || (hotkey && out.aiming)) {
             RaiseWand(out.selected);
@@ -1083,7 +1109,7 @@ namespace {
         }
         if (out.aiming && !gManaPrepared &&
             gCooldown.Ready(out.selected, mana, now)) {
-            // Holding PPM can re-arm after the previous cooldown expires.
+            // Holding LMB can re-arm after the previous cooldown expires.
             RaiseWand(out.selected);
         }
         if (out.aiming && gAiming && gManaPrepared && !gRequestedSpell && player->GetSpellBook() &&
@@ -1091,10 +1117,6 @@ namespace {
             // Gothic invests mana internally. Keep the prepared cast valid
             // even if the visible mana counter reaches zero mid-charge.
             player->GetSpellBook()->Spell_Invest();
-        }
-        if (out.cast && gAiming && gManaPrepared &&
-            gCooldown.ReadyByTime(out.selected, now)) {
-            CastAtCenteredNpc(out.selected);
         }
     }
 } // anonymous namespace

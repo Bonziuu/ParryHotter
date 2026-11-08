@@ -54,40 +54,54 @@ inline float nativeJumpBuffer = 0.0f;
 inline bool previousJump = false;
 inline bool requireJumpRelease = false;
 
-// Gothic I binds RMB to native actions (GAME_SMOVE = jump). Zeroing the
-// logical state after input processing was not enough in the real engine:
-// RMB still made the hero jump and moved the camera. While spells own RMB,
-// RMB is removed from every native binding; the exact original lists are
-// restored whenever the game regains control (menus, options, dialogue,
-// inventory, save/load, exit), so the controls menu never sees or saves
-// the reduced bindings.
-struct RmbBindingGuard {
+// HP2 controls: LMB aims/casts, RMB jumps. Gothic I binds both mouse
+// buttons to native actions (LMB = GAME_ACTION attack/take, RMB =
+// GAME_SMOVE jump), and zeroing logical states after input processing was
+// not enough in the real engine. While spells own LMB (any controllable
+// state, F11 included) LMB is removed from every native binding; while
+// our movement owns input, RMB is removed too and jumps through the
+// locomotion model. The exact original lists are restored whenever the
+// game regains control (menus, options, dialogue, inventory, save/load,
+// exit), so the controls menu never sees or saves the reduced bindings.
+struct MouseBindingGuard {
     static constexpr int kFirstAction = GAME_LEFT;
     static constexpr int kLastAction = 29; // GAME_LAME_HEAL
     std::array<std::vector<unsigned short>, kLastAction + 1> saved{};
     std::array<bool, kLastAction + 1> changed{};
     zCInput_Win32* owner = nullptr;
+    bool left = false;
+    bool right = false;
 
     bool Engaged() const { return owner != nullptr; }
+    bool StripsLeft() const { return owner && left; }
+    bool StripsRight() const { return owner && right; }
 
-    void Engage(zCInput_Win32* in) {
-        if (!in || owner == in) return;
+    void Engage(zCInput_Win32* in, bool stripLeft, bool stripRight) {
+        if (!in || (!stripLeft && !stripRight)) { Release(); return; }
+        if (owner == in && left == stripLeft && right == stripRight) return;
         Release();
         for (int logical = kFirstAction; logical <= kLastAction; ++logical) {
             const auto action = static_cast<unsigned short>(logical);
-            if (!in->IsBinded(action, MOUSE_BUTTONRIGHT)) continue;
+            const bool hasLeft = stripLeft && in->IsBinded(action, MOUSE_BUTTONLEFT);
+            const bool hasRight = stripRight && in->IsBinded(action, MOUSE_BUTTONRIGHT);
+            if (!hasLeft && !hasRight) continue;
             zCArray<unsigned short> current;
             in->GetBinding(action, current);
             zCArray<unsigned short> filtered;
             saved[logical].clear();
             for (int i = 0; i < current.GetNumInList(); ++i) {
-                saved[logical].push_back(current[i]);
-                if (current[i] != MOUSE_BUTTONRIGHT) filtered.InsertEnd(current[i]);
+                const unsigned short key = current[i];
+                saved[logical].push_back(key);
+                if ((stripLeft && key == MOUSE_BUTTONLEFT) ||
+                    (stripRight && key == MOUSE_BUTTONRIGHT)) continue;
+                filtered.InsertEnd(key);
             }
             in->Bind(action, filtered);
             changed[logical] = true;
         }
         owner = in;
+        left = stripLeft;
+        right = stripRight;
     }
 
     void Release() {
@@ -102,18 +116,20 @@ struct RmbBindingGuard {
         changed.fill(false);
         for (auto& list : saved) list.clear();
         owner = nullptr;
+        left = right = false;
     }
 };
-inline RmbBindingGuard rmbGuard;
+inline MouseBindingGuard mouseGuard;
 
-// Gothic I also reads the right mouse button directly in the player's
-// movement AI (RMB + forward = jump), bypassing every binding. While the
-// player's native AI runs and spells own RMB, the input hooks report RMB
-// as released. Spells read RMB earlier, in CaptureInput.
-inline bool maskNativeRmb = false;
+// Gothic I also reads the mouse buttons directly in the player's movement
+// AI (e.g. RMB + forward = jump), bypassing every binding. While the
+// player's native AI runs, the input hooks report the buttons the guard
+// owns as released. Spells and locomotion sample them earlier.
+inline bool maskNativeLeft = false;
+inline bool maskNativeRight = false;
 
 // Call from every lifecycle hook where the game takes control back.
-inline void ReleaseNativeBindings() { rmbGuard.Release(); }
+inline void ReleaseNativeBindings() { mouseGuard.Release(); }
 
 inline float FrameSeconds() {
     const float seconds = ztimer ? ztimer->frameTimeFloat * 0.001f : 0.0f;
@@ -199,17 +215,19 @@ inline bool OwnsInput() { return ownsInput && Available(); }
 
 inline void CaptureInput(zCInput_Win32* controls) {
     if (!controls) { ReleaseNativeBindings(); Disable(); return; }
-    // Spells own RMB in both movement modes (F11 included) whenever the
-    // player is in a controllable state; elsewhere the game's bindings rule.
-    if (ContextAvailable()) rmbGuard.Engage(controls);
-    else ReleaseNativeBindings();
+    // Spells own LMB in both movement modes (F11 included) whenever the
+    // player is in a controllable state; RMB is our jump only while our
+    // movement owns input. Elsewhere the game's bindings rule.
+    // F11 first, so bindings match the movement mode in the same frame.
     if (controls->KeyToggled(KEY_F11)) {
         enabled = !enabled;
         Disable();
     }
-    // Spells retain RMB/LMB ownership when F11 restores native movement.
+    if (ContextAvailable()) mouseGuard.Engage(controls, true, enabled);
+    else ReleaseNativeBindings();
+    // Spells retain LMB ownership when F11 restores native movement.
     // Leave native action input untouched in dialogue and other unsafe states.
-    if (ContextAvailable() && controls->GetMouseButtonPressedRight())
+    if (ContextAvailable() && controls->GetMouseButtonPressedLeft())
         controls->SetState(GAME_ACTION, 0);
     if (!Available()) { Disable(); return; }
     ownsInput = true;
@@ -220,7 +238,9 @@ inline void CaptureInput(zCInput_Win32* controls) {
                     float(controls->KeyPressed(KEY_S) || controls->KeyPressed(KEY_DOWN));
     input.right = float(controls->KeyPressed(KEY_D) || controls->KeyPressed(KEY_RIGHT)) -
                   float(controls->KeyPressed(KEY_A) || controls->KeyPressed(KEY_LEFT));
-    input.jumpHeld = controls->KeyPressed(KEY_SPACE) != 0;
+    // HP2: RMB jumps (no auto-jump); Space stays as a keyboard jump.
+    input.jumpHeld = controls->KeyPressed(KEY_SPACE) != 0 ||
+                     controls->GetMouseButtonPressedRight() != 0;
     input.rightHeld = controls->GetMouseButtonPressedRight() != 0;
     input.leftHeld = controls->GetMouseButtonPressedLeft() != 0;
     float wheel = 0.0f;
@@ -262,7 +282,8 @@ inline void UpdateCamera(zCAICamera* camera) {
     const auto view = orbit.Step({true, FrameSeconds(),
         mouseConsumed ? 0.0f : input.mouseX,
         mouseConsumed ? 0.0f : input.mouseY,
-        initialCameraYaw, initialCameraPitch});
+        initialCameraYaw, initialCameraPitch,
+        (input.forward != 0.0f || input.right != 0.0f) && !input.leftHeld});
     mouseConsumed = true;
     currentCameraYaw = view.yawDegrees;
     // Offset changes steer the native collision-aware orbit rather than
@@ -284,7 +305,7 @@ inline void BeforeHumanAI(oCAIHuman* ai) {
                           ai->aboveFloor >= -8.0f && ai->aboveFloor <= 14.0f;
     pendingMove = locomotion.Step({true, movementDelta, currentCameraYaw,
         input.forward, input.right, planarX, planarZ,
-        grounded, input.jumpHeld, input.rightHeld});
+        grounded, input.jumpHeld, input.leftHeld});
     planarX = pendingMove.velocityX;
     planarZ = pendingMove.velocityZ;
     nativeJumpBuffer = std::max(0.0f, nativeJumpBuffer - movementDelta);
@@ -307,7 +328,7 @@ inline void BeforeHumanAI(oCAIHuman* ai) {
     }
     // grounded was sampled before JumpForward. Do not immediately replace
     // its jump animation, or an invest/cast animation, with a ground command.
-    if (grounded && !jumpStarted && !input.rightHeld && !ai->IsInCastAni()) {
+    if (grounded && !jumpStarted && !input.leftHeld && !ai->IsInCastAni()) {
         if (std::hypot(input.forward, input.right) > 0.001f) ai->PC_GoForward();
         else if (!ai->IsStanding()) ai->_Stand();
     }
