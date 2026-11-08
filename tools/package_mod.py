@@ -96,7 +96,9 @@ def release_profile(game: Path) -> tuple[Path, bytes]:
     if len(re.findall(vdf, text)) != 1:
         raise PackagingError("ParryHotter.ini must define exactly one VDF=")
     text = re.sub(vdf, "vdf=ParryHotter.mod", text)
-    text = re.sub(r"(?im)^[ \t]*force_parameters[ \t]*=.*$", "force_parameters=", text)
+    # PLAY reads the packaged .mod (no -zreparse) and, like DEV, always
+    # starts windowed (-zwindow, the GothicStarter "Window Mode" switch).
+    text = re.sub(r"(?im)^[ \t]*force_parameters[ \t]*=.*$", "force_parameters=-zwindow", text)
     text = re.sub(r"(?im)^[ \t]*title[ \t]*=.*$", "title=Parry Hotter (PLAY)", text)
     if b"\r\n" in raw:
         text = text.replace("\n", "\r\n")

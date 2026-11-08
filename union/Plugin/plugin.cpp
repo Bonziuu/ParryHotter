@@ -25,7 +25,9 @@
 #include "AimTargetState.hpp"
 #include "TargetGlyph.hpp"
 #include "CastLedger.hpp"
+#include "CastLog.hpp"
 #include <cstdio>
+#include <cstring>
 #include <cmath>
 #include <chrono>
 #include <array>
@@ -208,6 +210,8 @@ namespace {
 
     ParryHotter::Controller gController;
     ParryHotter::AimCamera gCamera;
+    // Development diagnostics: Gothic/System/ParryHotter_cast.log.
+    ParryHotter::CastLog gLog;
     ParryHotter::SpellCooldown gCooldown;
     ParryHotter::CastLedger gCasts;
     struct CastReferences {
@@ -322,6 +326,7 @@ namespace {
                 gCasts.Revoke(id);
                 ReapCasts();
             }
+            gLog.Line("engine Cast slot=%d result=%d sameRequest=%d", slot, result, sameRequest() ? 1 : 0);
             if (sameRequest()) {
                 gCastConfirmed = result != 0;
                 NotifyCastResult(slot, result != 0);
@@ -901,7 +906,11 @@ namespace {
     void RaiseWand(int spellSlot) {
         if (!ParryControls::ContextAvailable() ||
             spellSlot < 0 || spellSlot >= ParryHotter::kSpellCount ||
-            kGothicSpellIds[spellSlot] < 0) return;
+            kGothicSpellIds[spellSlot] < 0) {
+            gLog.Line("raise slot=%d REFUSED context=%d", spellSlot,
+                      ParryControls::ContextAvailable() ? 1 : 0);
+            return;
+        }
         ReleaseCastRequest();
         const int mana = player->GetAttribute(NPC_ATR_MANA);
         const auto now = ParryHotter::SpellCooldown::Clock::now();
@@ -917,7 +926,10 @@ namespace {
             player->UnreadySpell();
         }
         // Check mana BEFORE Gothic invests it. Do not re-check during casting.
-        if (!gCooldown.Ready(spellSlot, mana, now)) return;
+        if (!gCooldown.Ready(spellSlot, mana, now)) {
+            gLog.Line("raise slot=%d REFUSED cooldown/mana mana=%d", spellSlot, mana);
+            return;
+        }
         const int id = kGothicSpellIds[spellSlot];
         // ReadySpell returns an undocumented integer in Gothic 1. Never
         // assume 0 means failure; native Spell_Cast performs the final check.
@@ -925,6 +937,10 @@ namespace {
         auto* book = player->GetSpellBook();
         auto* prepared = book ? book->GetSelectedSpell() : nullptr;
         if (!prepared || prepared->GetSpellID() != id || !prepared->GetEnabled()) {
+            gLog.Line("raise slot=%d REFUSED ReadySpell(%d) book=%d prepared=%d preparedId=%d enabled=%d",
+                      spellSlot, id, book ? 1 : 0, prepared ? 1 : 0,
+                      prepared ? prepared->GetSpellID() : -1,
+                      prepared ? prepared->GetEnabled() : -1);
             player->UnreadySpell();
             return;
         }
@@ -939,9 +955,13 @@ namespace {
         gManaPrepared = true;
         gAiming = true;
         AttachWand();
+        gLog.Line("raise slot=%d OK spellId=%d mana=%d wandAttached=%d", spellSlot, id,
+                  mana, gWandVisual ? 1 : 0);
     }
 
     void LowerWand() {
+        if (gAiming || gRequestedSpell) gLog.Line("lower wand aiming=%d request=%d",
+                                                  gAiming ? 1 : 0, gRequestedSpell ? 1 : 0);
         gLowerAfterCast = false;
         const bool wasAiming = gAiming;
         auto* actor = player;
@@ -981,20 +1001,37 @@ namespace {
     bool CastAtCenteredNpc(int slot) {
         if (!ParryControls::ContextAvailable() || gRequestedSpell ||
             slot < 0 || slot >= ParryHotter::kSpellCount ||
-            !ParryHotter::kSpellAvailable[slot]) return false;
+            !ParryHotter::kSpellAvailable[slot]) {
+            gLog.Line("cast slot=%d REFUSED context=%d pendingRequest=%d", slot,
+                      ParryControls::ContextAvailable() ? 1 : 0, gRequestedSpell ? 1 : 0);
+            return false;
+        }
         oCNpc* target = GetCenteredNpcTarget();
-        if (!target) return false;
+        if (!target) {
+            gLog.Line("cast slot=%d REFUSED no target (%s)", slot,
+                      ParryHotter::AimTargetDescription(gAimTargetState));
+            return false;
+        }
         oCMag_Book* spellbook = player->GetSpellBook();
         if (!spellbook) {
             SetAimTargetState(ParryHotter::AimTargetState::NoSpellBook);
+            gLog.Line("cast slot=%d REFUSED no spellbook", slot);
             return false;
         }
         auto* spell = spellbook->GetSelectedSpell();
         if (!spell || spell->GetSpellID() != kGothicSpellIds[slot] ||
-            !spell->GetEnabled() || !spell->IsValidTarget(target)) return false;
-        const int status = spell->GetSpellStatus();
-        if (status == SPL_STATUS_STOP || status == SPL_STATUS_DONTINVEST)
+            !spell->GetEnabled() || !spell->IsValidTarget(target)) {
+            gLog.Line("cast slot=%d REFUSED spell=%d id=%d want=%d enabled=%d validTarget=%d",
+                      slot, spell ? 1 : 0, spell ? spell->GetSpellID() : -1,
+                      kGothicSpellIds[slot], spell ? spell->GetEnabled() : -1,
+                      spell ? spell->IsValidTarget(target) : -1);
             return false;
+        }
+        const int status = spell->GetSpellStatus();
+        if (status == SPL_STATUS_STOP || status == SPL_STATUS_DONTINVEST) {
+            gLog.Line("cast slot=%d REFUSED spellStatus=%d", slot, status);
+            return false;
+        }
         // Bind the game engine's target to the actual center-screen NPC.
         // Gothic's own focus detection may otherwise select a neighbor.
         player->SetFocusVob(static_cast<zCVob*>(target));
@@ -1014,7 +1051,11 @@ namespace {
             ParryCasting::Bind(player->human_ai, player->GetModel());
             player->human_ai->TransitionToCast();
         }
+        gLog.Line("cast slot=%d REQUEST target=%p status=%d", slot,
+                  static_cast<void*>(target), status);
         spellbook->Spell_Cast();
+        gLog.Line("cast slot=%d after Spell_Cast confirmed=%d pending=%d", slot,
+                  gCastConfirmed ? 1 : 0, gRequestedSpell ? 1 : 0);
         // The native animation may call oCSpell::Cast on a later frame.
         // Its hook is the sole place that starts the cooldown on success.
         return gCastConfirmed || gRequestedSpell != nullptr;
@@ -1062,6 +1103,29 @@ namespace {
         const bool target = targetNpc != nullptr;
         ParryHotter::Input input{inputAllowed, hotkey, right, left, target};
         auto out = gController.Step(input);
+        {
+            // Log every change of the casting chain's observable state.
+            struct Snapshot {
+                int left, right, aiming, wand, mana, target, slot, body, castAni, request;
+                bool operator!=(const Snapshot& o) const {
+                    return std::memcmp(this, &o, sizeof(*this)) != 0;
+                }
+            };
+            static Snapshot last{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+            const Snapshot now{left, right, out.aiming, gAiming, gManaPrepared,
+                               target, out.selected, player->GetBodyState(),
+                               player->human_ai && player->human_ai->IsInCastAni() ? 1 : 0,
+                               gRequestedSpell ? 1 : 0};
+            if (now != last || out.cast || out.startAim || out.stopAim) {
+                gLog.Line("frame LMB=%d RMB=%d aim=%d wand=%d manaPrep=%d target=%d(%s) "
+                          "slot=%d body=%d castAni=%d request=%d start=%d stop=%d cast=%d mana=%d",
+                          now.left, now.right, now.aiming, now.wand, now.mana, now.target,
+                          ParryHotter::AimTargetDescription(gAimTargetState), now.slot,
+                          now.body, now.castAni, now.request, out.startAim, out.stopAim,
+                          out.cast, player->GetAttribute(NPC_ATR_MANA));
+                last = now;
+            }
+        }
 
         // Falling unconscious, swimming or entering a scripted action cancels
         // preparation. Already fired projectiles retain their hit records.
