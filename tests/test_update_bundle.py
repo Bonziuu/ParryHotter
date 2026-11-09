@@ -27,7 +27,7 @@ class UpdateBundleTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.directory = Path(self.temporary.name)
+        self.directory = Path(self.temporary.name).resolve()
         self.root = self.directory / "project"
         self.root.mkdir()
         self.sources = {}

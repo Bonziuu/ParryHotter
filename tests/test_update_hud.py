@@ -21,7 +21,7 @@ class UpdateHudTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.directory = Path(self.temporary.name)
+        self.directory = Path(self.temporary.name).resolve()
         self.project = self.directory / "project"
         self.project.mkdir()
         self.game = self.directory / "Gothic"
