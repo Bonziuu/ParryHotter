@@ -68,6 +68,8 @@ namespace {
     };
     bool DriveNativeMagic();
     void LogNativeMagic(oCAIHuman* ai, bool after);
+    void LogPlayerMagicAI(oCAIHuman* ai, bool after, bool driving);
+    unsigned gPlayerMagicCalls = 0;
 }
 
 namespace Gothic_I_Classic {
@@ -92,15 +94,18 @@ namespace Gothic_I_Classic {
     }
 
     auto& Ivk_PH_Cast = UnionCore::CreateHook(
-        &oCSpell::Cast, &oCSpell::PH_Cast, UnionCore::Hook_Auto);
+        PH_VIRTUAL(0x0047CFB0) /* oCSpell::Cast */,
+        &oCSpell::PH_Cast, UnionCore::Hook_Auto);
     int oCSpell::PH_Cast() { return CastTracked(this); }
 
     auto& Ivk_PH_Invest = UnionCore::CreateHook(
-        &oCSpell::Invest, &oCSpell::PH_Invest, UnionCore::Hook_Auto);
+        PH_VIRTUAL(0x0047CD40) /* oCSpell::Invest */,
+        &oCSpell::PH_Invest, UnionCore::Hook_Auto);
     int oCSpell::PH_Invest() { return InvestTracked(this); }
 
     auto& Ivk_PH_SpellStatus = UnionCore::CreateHook(
-        &oCSpell::GetSpellStatus, &oCSpell::PH_GetSpellStatus, UnionCore::Hook_Auto);
+        PH_VIRTUAL(0x0047E390) /* oCSpell::GetSpellStatus */,
+        &oCSpell::PH_GetSpellStatus, UnionCore::Hook_Auto);
     int oCSpell::PH_GetSpellStatus() {
         if (DeferChargedSpell(this)) return SPL_STATUS_CANINVEST;
         return THISCALL(Ivk_PH_SpellStatus)();
@@ -119,6 +124,7 @@ namespace Gothic_I_Classic {
         ParryControls::maskNativeRight = own && ParryControls::mouseGuard.StripsRight();
         if (this->npc && this->npc == player) LogJumpInput(this);
         const bool driving = own && DriveNativeMagic();
+        LogPlayerMagicAI(this, false, driving);
         ParryControls::BeforeHumanAI(this);
         // F11 restores native movement, but native magic still cannot invest
         // while walking. Give it a stationary animation during this request.
@@ -136,6 +142,7 @@ namespace Gothic_I_Classic {
                 THISCALL(Ivk_PH_HumanAI)(vob, state);
             }
         }
+        LogPlayerMagicAI(this, true, driving);
         ParryControls::AfterHumanAI(this);
         ParryControls::maskNativeLeft = ParryControls::maskNativeRight = false;
     }
@@ -147,11 +154,13 @@ namespace Gothic_I_Classic {
         THISCALL(Ivk_PH_WeaponChoose)();
     }
     auto& Ivk_PH_MagicMode = UnionCore::CreateHook(
-        &oCAIHuman::MagicMode, &oCAIHuman::PH_MagicMode, UnionCore::Hook_Auto);
+        PH_VIRTUAL(0x0046D260) /* oCAIHuman::MagicMode */,
+        &oCAIHuman::PH_MagicMode, UnionCore::Hook_Auto);
     int oCAIHuman::PH_MagicMode() {
         // Only MagicMode sees synthetic ACTION+UP. The rest of native player
         // DoAI sees zero movement, so it cannot replace the cast with a run.
         const bool own = npc == player && ParryControls::ContextAvailable();
+        if (npc == player) ++gPlayerMagicCalls;
         ParryControls::NativePlayerInputScope movementInput(
             own && ParryControls::nativePlayerInput);
         ParryControls::NativeMagicInputScope magicInput(own);
@@ -841,6 +850,32 @@ namespace {
     bool OwnsMagicInput() { return gAiming && ParryControls::ContextAvailable(); }
     bool CastRequestPending() { return gRequestedSpell != nullptr; }
 
+    // This runs even when native Moving never reaches MagicMode. ReadySpell
+    // queues a draw-weapon message; a visible casting animation alone does
+    // not prove that the NPC actually entered magic weapon mode (7).
+    void LogPlayerMagicAI(oCAIHuman* ai, bool after, bool driving) {
+        if (!ai || !player || ai->npc != player || (!gAiming && !gRequestedSpell)) return;
+        auto* book = player->GetSpellBook();
+        auto* spell = book ? book->GetSelectedSpell() : nullptr;
+        const std::array<int, 12> state{{player->fmode, ai->wmode,
+            ai->actionMode, ai->changeweapon, player->state.curState.valid,
+            ai->IsWalking(), ai->IsInCastAni(), driving ? 1 : 0,
+            spell ? spell->GetSpellID() : -1, spell ? spell->spellStatus : -1,
+            spell ? spell->manaInvested : -1, player->state.curState.index}};
+        static std::array<std::array<int, 12>, 2> last{};
+        static std::array<std::uint64_t, 2> generation{{~std::uint64_t(0), ~std::uint64_t(0)}};
+        const int phase = after ? 1 : 0;
+        if (state == last[phase] && generation[phase] == gRequestGeneration) return;
+        last[phase] = state;
+        generation[phase] = gRequestGeneration;
+        gLog.Line("player AI %s npcMode=%d aiMode=%d actionMode=%d changeWeapon=%d "
+                  "scriptStateValid=%d walking=%d castAni=%d driving=%d spellId=%d "
+                  "status=%d invested=%d scriptState=%d magicCalls=%u caster=%p",
+                  after ? "after" : "before", state[0], state[1], state[2], state[3],
+                  state[4], state[5], state[6], state[7], state[8], state[9], state[10], state[11],
+                  gPlayerMagicCalls, spell ? static_cast<void*>(spell->spellCasterNpc) : nullptr);
+    }
+
     bool DeferChargedSpell(oCSpell* spell) {
         return spell && ParryControls::DeferNativeSpellCast(
             gManaPrepared && OwnsMagicInput() && spell->spellCasterNpc == player,
@@ -1301,7 +1336,7 @@ namespace {
             !player->human_ai->IsInCastAni()) player->human_ai->_Stand();
         // ReadySpell returns an undocumented integer in Gothic 1. Never
         // assume 0 means failure; native Spell_Cast performs the final check.
-        player->ReadySpell(id, 0);
+        const int readyResult = player->ReadySpell(id, 0);
         auto* book = player->GetSpellBook();
         auto* prepared = book ? book->GetSelectedSpell() : nullptr;
         if (!prepared || prepared->GetSpellID() != id || !prepared->GetEnabled()) {
@@ -1319,13 +1354,15 @@ namespace {
             // Incomplete/unloaded animation assets keep the native defaults.
             const bool bound = ParryCasting::Bind(player->human_ai, player->GetModel());
             LogCastOverlay(spellSlot, bound);
-            player->human_ai->TransitionToInvest();
+            // ReadySpell only queued the native draw-weapon event. Starting
+            // an invest animation here bypassed that asynchronous preparation.
+            // Let MagicInvestSpell start it after native magic mode is ready.
         }
         gManaPrepared = true;
         gAiming = true;
         AttachWand();
-        gLog.Line("raise slot=%d OK spellId=%d mana=%d wandAttached=%d", spellSlot, id,
-                  mana, gWandVisual ? 1 : 0);
+        gLog.Line("raise slot=%d OK spellId=%d mana=%d wandAttached=%d readyResult=%d npcMode=%d",
+                  spellSlot, id, mana, gWandVisual ? 1 : 0, readyResult, player->fmode);
     }
 
     void LowerWand() {
@@ -1648,7 +1685,12 @@ cexport const char* ParryHotter_BuildId() {
 }
 cexport void Game_Entry() {}
 cexport void Game_Init() {
-    gLog.Line("build PH_CAST_INPUT_SCOPED_GETSTATE_V1");
+    gLog.Line("build PH_CAST_INPUT_NATIVE_READY_V2");
+    gLog.Line("hooks MagicMode=%p Invest=%p Cast=%p SpellStatus=%p",
+              Gothic_I_Classic::Ivk_PH_MagicMode.GetSourceAddress(),
+              Gothic_I_Classic::Ivk_PH_Invest.GetSourceAddress(),
+              Gothic_I_Classic::Ivk_PH_Cast.GetSourceAddress(),
+              Gothic_I_Classic::Ivk_PH_SpellStatus.GetSourceAddress());
     ParryControls::Reset();
     ParryCasting::Forget();
     gTelemetry.Reset();

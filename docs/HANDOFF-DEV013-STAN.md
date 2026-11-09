@@ -155,6 +155,37 @@ Binarka do analizy pozostała poza repozytorium. Źródło: PlayerKit w
 obiekt Git `a22a2f21877f8f1ecf11f9878f21a7c142b73566`; SHA-256:
 `af5859155fcde73a2923f3db4ce608f77f5e998413a305d462c44e80c76de1e0`.
 
+### Kolejna próba: log z 9 listopada, DLL V1
+
+Nowy log zawiera znacznik `PH_CAST_INPUT_SCOPED_GETSTATE_V1`. Są **6 REQUEST**:
+Flipendo (slot 0), Levicorpus (1), Rictusempra (2), Bumbardo (4, dwa razy)
+i Avada (5). Expelliarmus (3) ma tylko rozpoczęcie ładowania. Cztery żądania
+kończą się `TIMEOUT`, dwa `CANCELLED by engine`; nie ma żadnego `engine Cast`
+ani nawet `magic before/after`. Ochrona animacji nie wystarczyła do naprawy.
+Film nie został przeanalizowany: przesłany plik przekracza limit transferu
+32 MiB narzędzia pobierania.
+
+Disasemblacja potwierdza, że `ReadySpell` nie ustawia trybu broni od razu:
+kolejkuje `oCMsgWeapon(0, 7, 0)` (adresy `0x0074B049–0x0074B073`).
+`PC_ActionMove` wywołuje `MagicMode` dopiero przy `GetWeaponMode() > 6`
+(`0x00613F56–0x00613F76`). Sam `TransitionToInvest` uruchamia animacje,
+ale nie ustawia tego trybu. Nie potwierdzono, która bramka natywnego AI
+zatrzymuje tę konkretną sesję; wcześniejszy log nie zawierał trybu broni.
+
+DLL V2 usuwa przedwczesny `TransitionToInvest` z `RaiseWand`: poprawne przejście
+uruchomi natywny `MagicInvestSpell` po przygotowaniu broni. Nie wymusza
+`SetWeaponMode` i nie usuwa wiadomości silnika. Cztery hooki magii mają jawne,
+zweryfikowane adresy G1 1.08k, aby usunąć niejednoznaczność wskaźników SDK.
+Nie stwierdzono, że sam wskaźnik SDK był jedyną przyczyną.
+
+Identyfikator nowej DLL: `PH_CAST_INPUT_NATIVE_READY_V2`. Nowe wpisy
+`player AI before/after` powstają poza `MagicMode`: pokazują `npcMode`,
+`aiMode`, `actionMode`, `changeWeapon`, `scriptStateValid`, `scriptState`, `castAni`, `magicCalls`
+i wskaźnik `caster`. Początek logu pokazuje także adresy hooków. Dzięki temu
+nawet brak wejścia do `MagicMode` zostawi informacje o miejscu zatrzymania.
+Konieczny jest test w grze po automatycznej aktualizacji DLL; build i testy
+przenośne nie dowodzą jeszcze wystrzału.
+
 ## Jak testować u użytkownika
 
 Automatyczna aktualizacja samej DLL: rozpakować z `dev013-latest` paczkę
