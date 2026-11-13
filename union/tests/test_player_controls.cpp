@@ -37,14 +37,45 @@
 #define KEY_LCONTROL 29
 #define KEY_LMENU 56
 #include <vector>
+#include <string>
 namespace Gothic_I_Classic {
 struct zVEC3 { float a[3]; zVEC3(float x=0,float y=0,float z=0):a{x,y,z}{} float& operator[](int n){return a[n];} float operator[](int n)const{return a[n];} };
 struct zCVob { zVEC3 at{0,0,1},position; int begin=0,end=0; float biggestStep=0; zVEC3 GetAtVectorWorld(){return at;} zVEC3 GetPositionWorld(){return position;} void SetPositionWorld(zVEC3 p){position=p;} void BeginMovement(){++begin;} void EndMovement(){++end;} void MoveWorld(float x,float y,float z){position[0]+=x;position[1]+=y;position[2]+=z;biggestStep=std::max(biggestStep,std::hypot(x,z));} void SetHeadingYWorld(zVEC3 p){at=p;} void RotateWorldY(float d){float angle=std::atan2(at[0],at[2])+d*0.01745329252f;at=zVEC3(std::sin(angle),0,std::cos(angle));} };
-struct zCModelAni {};
-struct zCModel { zVEC3 aniTransScale{1,1,1}; zCModelAni ani; bool active=false; zCModelAni* GetAniFromAniID(int){return &ani;} int IsAniActive(zCModelAni*){return active;} };
-struct zCRigidBody { zVEC3 v; void SetVelocity(zVEC3 p){v=p;} };
-struct oCNpc: zCVob { bool physicsEnabled=true; zCRigidBody bodyPhysics; zCRigidBody* GetRigidBody(){return &bodyPhysics;} bool openinventory=false,dead=false,human=true,movLock=false; int body=0; zCModel mdl; bool IsDead(){return dead;} bool IsHuman(){return human;} bool IsMovLock(){return movLock;} int GetBodyState(){return body;} zCModel* GetModel(){return &mdl;} };
+using zSTRING = std::string;
+struct zMAT4 {
+ float m[4][4]{};
+ zMAT4(){for(int i=0;i<4;++i)m[i][i]=1.0f;}
+ float* operator[](int i){return m[i];}
+ const float* operator[](int i)const{return m[i];}
+};
+struct zCModelNodeInst { zCModelNodeInst* parentNode=nullptr; zMAT4 trafo; };
+struct zCModelAni { int id=0; };
+struct zCModel {
+ zVEC3 aniTransScale{1,1,1}; zCModelAni ani; bool active=false,isFlying=false;
+ int activeId=-1;
+ zCModelAni* GetAniFromAniID(int id){ani.id=id;return &ani;}
+ int IsAniActive(zCModelAni* a){return active&&(activeId<0||activeId==a->id);}
+ void StartAni(int id,int){active=true;activeId=id;}
+ zCModelNodeInst* SearchNode(const zSTRING&){return nullptr;}
+ zMAT4 GetTrafoNodeToModel(zCModelNodeInst*){return {};}
+};
+enum zTRigidBodyMode { zPHY_RBMODE_FLY, zPHY_RBMODE_SLIDE };
+struct zCRigidBody {
+ zVEC3 v; bool gravityOn=true; float gravityScale=1.0f;
+ void SetVelocity(zVEC3 p){v=p;}
+ void SetMode(zTRigidBodyMode){}
+};
+struct oCNpc: zCVob {
+ bool physicsEnabled=false; zCRigidBody bodyPhysics;
+ zCRigidBody* GetRigidBody(){return &bodyPhysics;}
+ zVEC3 GetVelocity(){return bodyPhysics.v;}
+ bool openinventory=false,dead=false,human=true,movLock=false; int body=0; zCModel mdl;
+ bool IsDead(){return dead;} bool IsHuman(){return human;} bool IsMovLock(){return movLock;}
+ int GetBodyState(){return body;} void SetBodyState(int s){body=s;} zCModel* GetModel(){return &mdl;}
+};
 struct oCGame { bool inLoadSaveGame=false,inLevelChange=false,paused=false; bool IsOnPause(){return paused;} };
+struct zCConsole { static zCConsole* cur_console; bool visible=false; bool IsVisible(){return visible;} };
+zCConsole* zCConsole::cur_console=nullptr;
 template<class T> struct zCArray { std::vector<T> v; int GetNumInList() const {return int(v.size());} T& operator[](int i){return v[i];} const T& operator[](int i) const {return v[i];} void InsertEnd(const T& x){v.push_back(x);} };
 struct zCInput_Win32 { std::map<int,std::vector<unsigned short>> bindings; int bindCalls=0;
  int IsBinded(unsigned short a,unsigned short k){for(auto x:bindings[a]) if(x==k) return 1; return 0;}
@@ -63,7 +94,7 @@ struct zCAICamera { static zCAICamera* current; zCVob* camVob; bool inCutsceneMo
 zCAICamera* zCAICamera::current=nullptr;
 struct oCInformationManager { bool done=true; static oCInformationManager& GetInformationManager(){static oCInformationManager m;return m;} int HasFinished(){return done;} };
 struct zCAIPlayer { enum State{zMV_STATE_STAND,zMV_STATE_FLY,zMV_STATE_SWIM,zMV_STATE_DIVE}; };
-struct oCAIHuman { zVEC3 velocity{100,200,300}; oCNpc* npc; int state=zCAIPlayer::zMV_STATE_STAND; float aboveFloor=0; bool canjump=true,standing=true,castAnimation=false; int jumps=0,runCalls=0,standCalls=0; bool IsInWater(){return false;} int CanJump(int){return canjump;} int JumpForward(){++jumps;canjump=false;standing=false;return 1;} bool IsInCastAni(){return castAnimation;} void PC_GoForward(){++runCalls;} int backCalls=0,strafeCalls=0,_t_strafel=7,_t_strafer=8; void PC_GoBackward(){++backCalls;} void StrafeLeft(){++strafeCalls;} void StrafeRight(){++strafeCalls;} bool IsStanding(){return standing;} bool IsWalking(){return !standing;} void _Stand(){++standCalls;standing=true;} };
+struct oCAIHuman { zVEC3 velocity{100,200,300}; oCNpc* npc; int state=zCAIPlayer::zMV_STATE_STAND; float aboveFloor=0; bool canjump=true,standing=true,castAnimation=false; int jumps=0,runCalls=0,standCalls=0,_t_stand_2_jump=10,_s_jump=11; struct Config{float zMV_STEP_HEIGHT=30.0f;} config; void StartPhysicsWithVel(){++jumps;standing=false;npc->physicsEnabled=true;npc->bodyPhysics.SetVelocity(velocity);} void StartFallDownAni(){npc->body=10;} bool IsInWater(){return false;} int CanJump(int){return canjump;} int JumpForward(){++jumps;canjump=false;standing=false;return 1;} bool IsInCastAni(){return castAnimation;} void PC_GoForward(){++runCalls;} int backCalls=0,strafeCalls=0,_t_strafel=7,_t_strafer=8; void PC_GoBackward(){++backCalls;} void StrafeLeft(){++strafeCalls;} void StrafeRight(){++strafeCalls;} bool IsStanding(){return standing;} bool IsWalking(){return !standing;} void _Stand(){++standCalls;standing=true;} };
 struct zCTimer { float frameTimeFloat=16.66667f; };
 inline zCTimer timer;
 inline zCTimer* ztimer=&timer;
@@ -77,6 +108,9 @@ constexpr int BS_MOD_TRANSFORMED=4096,BS_MOD_CONTROLLED=2048,BS_MOD_CONTROLLING=
 #include <cassert>
 #include <iostream>
 using namespace Gothic_I_Classic;
+static std::uint64_t capturedRelease=0;
+static unsigned releaseSnapshots=0;
+static void CaptureRelease(std::uint64_t sequence){capturedRelease=sequence;++releaseSnapshots;}
 float zCInput_Win32::GetState(unsigned short action) {
  float value=0.0f;
  if(ParryControls::OverrideNativeState(action,value)) return value;
@@ -119,16 +153,21 @@ int main(){
  ParryControls::CaptureInput(&controls);assert(ParryControls::OwnsInput());assert(ParryControls::GetInput().slotPressed==10);assert(controls.states[GAME_UP]==0);
  ParryControls::UpdateCamera(&cam);
  for(int i=0;i<60;++i){ParryControls::BeforeHumanAI(&ai);assert(pc.mdl.aniTransScale[0]==0);ParryControls::AfterHumanAI(&ai);assert(pc.mdl.aniTransScale[0]==1);}
- assert(ai.velocity[0]==0 && ai.velocity[1]==200 && ai.velocity[2]==0);
+ assert(ai.velocity[0]==100 && ai.velocity[1]==200 && ai.velocity[2]==300); // No external native velocity is erased.
  assert(pc.position[0]>200&&pc.position[2]>200);assert(pc.position[1]==0);assert(pc.biggestStep<=10.001f);assert(pc.begin==pc.end);
  const int runCallsBeforeJump=ai.runCalls;
  controls.keys[KEY_SPACE]=1;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.jumps==1);
  assert(ai.runCalls==runCallsBeforeJump); // A native jump must not be followed by a run command.
  ParryControls::Disable();assert(cam.rotOffsetX==12&&cam.rotOffsetY==15);
- ai.canjump=true;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.jumps==1);
+ ai.canjump=true;pc.physicsEnabled=false;pc.bodyPhysics.v={};pc.body=BS_STAND;pc.mdl.active=false;ai.standing=true;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.jumps==1);
  controls.keys[KEY_SPACE]=0;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
  controls.keys[KEY_SPACE]=1;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.jumps==2);
  controls.keys[KEY_W]=controls.keys[KEY_D]=controls.keys[KEY_SPACE]=0;
+ ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
+ // The contract double does not simulate flight: explicitly land/reset
+ // before checking a fresh third jump. Full flight is tested in hp2_motion.
+ ParryControls::Disable();pc.physicsEnabled=false;pc.bodyPhysics.v={};
+ pc.body=BS_STAND;pc.mdl.active=false;pc.mdl.isFlying=false;ai.standing=true;
  ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
  const int standCallsBeforeJump=ai.standCalls;
  ai.canjump=true;controls.keys[KEY_SPACE]=1;
@@ -170,7 +209,7 @@ int main(){
   const int back=ai.backCalls;ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.backCalls==back+1);
   controls.keys.clear();controls.keys[KEY_A]=1;ParryControls::CaptureInput(&controls);
   const int strafes=ai.strafeCalls;ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.strafeCalls==strafes+1);
-  pc.mdl.active=true;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.strafeCalls==strafes+1);
+  pc.mdl.active=true;pc.mdl.activeId=ai._t_strafel;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.strafeCalls==strafes+1);
   pc.mdl.active=false;
   // Number keys latch until the HUD takes them; repeated polls keep them.
   controls.keys.clear();controls.toggled[KEY_3]=1;ParryControls::CaptureInput(&controls);ParryControls::CaptureInput(&controls);
@@ -384,6 +423,87 @@ int main(){
   ParryControls::castPose=false;frame(); // native recovery still active
   assert(!ai.standing); // no _Stand silently replaced the active animation
   ai.castAnimation=false;ai.standing=true;pc.body=BS_STAND;
+  ParryControls::Forget();
+ }
+ // Console ownership and buffered taps use the real input adapter.
+ {
+  ParryControls::Forget();ParryControls::enabled=true;
+  controls.keys.clear();controls.toggled.clear();controls.left=controls.right=false;
+  pc.body=BS_STAND;pc.physicsEnabled=false;pc.bodyPhysics.v={};pc.mdl.active=false;ai.castAnimation=false;ai.standing=true;ai.canjump=true;
+  zCConsole console;zCConsole::cur_console=&console;
+  ParryControls::CaptureInput(&controls);
+  console.visible=true;controls.left=controls.right=true;controls.keys[KEY_W]=1;
+  controls.toggled[KEY_F11]=1;controls.toggled[KEY_2]=1;
+  ParryControls::CaptureInput(&controls);
+  assert(!ParryControls::ContextAvailable()&&!ParryControls::OwnsInput());
+  assert(ParryControls::enabled); // F11 is not consumed by the mod in console.
+  assert(controls.IsBinded(GAME_ACTION,MOUSE_BUTTONLEFT));
+  assert(controls.IsBinded(GAME_SMOVE,MOUSE_BUTTONRIGHT));
+  assert(!ParryControls::events.ConsumeRightPressed());
+  controls.toggled.clear();console.visible=false;
+  ParryControls::CaptureInput(&controls);
+  assert(!ParryControls::events.LeftHeld()&&!ParryControls::events.RightHeld());
+  controls.left=controls.right=false;controls.keys.clear();
+  ParryControls::CaptureInput(&controls);
+  controls.right=true;ParryControls::CaptureInput(&controls);
+  controls.right=false;ParryControls::CaptureInput(&controls); // full tap before AI
+  const int jumps=ai.jumps;
+  ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
+  assert(ai.jumps==jumps+1);
+  ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
+  assert(ai.jumps==jumps+1);
+  zCConsole::cur_console=nullptr;
+  ParryControls::Forget();
+ }
+ // Snapshot references use the release event itself, even when selecting an
+ // empty slot inserts a cancellation before that release in the same poll.
+ {
+  ParryControls::Forget();ParryControls::enabled=true;
+  controls.keys.clear();controls.toggled.clear();controls.left=controls.right=false;
+  pc.body=BS_STAND;pc.physicsEnabled=false;pc.bodyPhysics.v={};pc.mdl.active=false;
+  ai.standing=true;ai.canjump=true;
+  ParryControls::events.Reset(0,false);
+  ParryControls::captureReleaseTarget=CaptureRelease;
+  ParryControls::CaptureInput(&controls);
+  controls.left=true;ParryControls::CaptureInput(&controls);
+  const auto beforeRelease=ParryControls::events.LastSequence();
+  controls.left=false;controls.toggled[KEY_7]=1;
+  ParryControls::CaptureInput(&controls);
+  assert(capturedRelease==beforeRelease+2 && releaseSnapshots==1);
+  ParryHotter::InputEvent event;
+  bool found=false;
+  while(ParryControls::events.Pop(event))
+   if(event.kind==ParryHotter::InputEventKind::LeftReleased){
+    assert(event.sequence==capturedRelease);found=true;
+   }
+  assert(found);
+  ParryControls::CaptureInput(&controls);
+  assert(releaseSnapshots==1); // steady polls do not retain another reference
+  ParryControls::captureReleaseTarget=nullptr;
+  ParryControls::Forget();
+ }
+ // RMB/Space taps in F11 native movement must never replay as custom jumps.
+ {
+  controls.keys.clear();controls.toggled.clear();controls.left=controls.right=false;
+  pc.body=BS_STAND;pc.physicsEnabled=false;pc.bodyPhysics.v={};pc.mdl.active=false;
+  ai.standing=true;ai.canjump=true;
+  ParryControls::Reset();ParryControls::CaptureInput(&controls);
+  controls.toggled[KEY_F11]=1;ParryControls::CaptureInput(&controls);
+  assert(!ParryControls::enabled);
+  controls.right=true;controls.keys[KEY_SPACE]=1;
+  ParryControls::CaptureInput(&controls);
+  controls.right=false;controls.keys[KEY_SPACE]=0;
+  ParryControls::CaptureInput(&controls);
+  controls.right=true;ParryControls::CaptureInput(&controls);
+  controls.toggled[KEY_F11]=1;ParryControls::CaptureInput(&controls);
+  const int before=ai.jumps;
+  ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
+  assert(ai.jumps==before); // held through enabling is not a new request
+  controls.right=false;ParryControls::CaptureInput(&controls);
+  ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
+  controls.right=true;ParryControls::CaptureInput(&controls);
+  ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);
+  assert(ai.jumps==before+1);
   ParryControls::Forget();
  }
  std::cout<<"Gothic adapter simulation: movement, jump sequencing, context safety and F11 fallback OK\n";

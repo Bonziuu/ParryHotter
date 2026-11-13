@@ -3,12 +3,16 @@
 // animations, floor contact and collision response; this adapter supplies
 // horizontal movement through BeginMovement/MoveWorld/EndMovement.
 #pragma once
+#include "Hp2Motion.hpp"
+#include "MovingCasting.hpp"
 #if __has_include("Locomotion.hpp")
 #include "Locomotion.hpp"
 #include "FreeCamera.hpp"
+#include "InputEvents.hpp"
 #else
 #include "../hud/Locomotion.hpp"
 #include "../hud/FreeCamera.hpp"
+#include "../hud/InputEvents.hpp"
 #endif
 #include <algorithm>
 #include <array>
@@ -24,6 +28,7 @@ struct InputSnapshot {
     float mouseX = 0.0f;
     float mouseY = 0.0f;
     bool jumpHeld = false;
+    bool jumpPressed = false;
     bool rightHeld = false;
     bool leftHeld = false;
     int slotPressed = 0; // 1..10; physical 0 maps to 10
@@ -35,6 +40,11 @@ inline bool ownsInput = false;
 // Set by the spell code while Gothic's magic AI invests or casts: it does
 // nothing while the caster's walk animation runs.
 inline bool castPose = false;
+inline ParryHotter::InputEvents events;
+inline void (*captureReleaseTarget)(std::uint64_t) = nullptr;
+inline bool pendingSpaceJump = false;
+inline bool previousSpace = false;
+inline bool requireSpaceRelease = true;
 // The engine input hook may not run during gameplay, so the player's DoAI
 // captures input when no capture happened since its previous call. Exactly
 // one capture per player AI step: a second one would find the number-key
@@ -59,11 +69,12 @@ inline bool mouseConsumed = false;
 // second here): each poll resets the mouse delta and the key-toggle table.
 // Mouse movement is therefore summed over polls until the camera uses it,
 // and a number key stays latched until the spell HUD consumes it.
-// Last position where Harry stood on (not inside) the floor. If the engine
-// lets him sink through the terrain he is put back instead of falling out
-// of the world.
+// A recent nearby floor contact can recover a small collision penetration.
+// Expired or distant contacts never pull a falling actor across the world.
 inline zVEC3 lastSafePosition;
 inline bool hasSafePosition = false;
+inline float safePositionAge = 0.0f;
+inline unsigned floorRecoveries = 0;
 inline float pendingMouseX = 0.0f;
 inline float pendingMouseY = 0.0f;
 inline int pendingSlot = 0;
@@ -73,17 +84,17 @@ inline float savedScaleX = 1.0f;
 inline float savedScaleZ = 1.0f;
 inline ParryHotter::LocomotionOutput pendingMove;
 inline float movementDelta = 0.0f;
-inline float nativeJumpBuffer = 0.0f;
-inline bool previousJump = false;
-inline bool requireJumpRelease = false;
+inline Hp2Motion motion;
+inline ParryHotter::PlanarFeedback movementFeedback;
+inline bool resumedNativeFall = false;
 
 // HP2 controls: LMB aims/casts, RMB jumps. Gothic I binds both mouse
 // buttons to native actions (LMB = GAME_ACTION attack/take, RMB =
 // GAME_SMOVE jump), and zeroing logical states after input processing was
 // not enough in the real engine. While spells own LMB (any controllable
 // state, F11 included) LMB is removed from every native binding; while
-// our movement owns input, RMB is removed too and jumps through the
-// locomotion model. The exact original lists are restored whenever the
+// our movement owns input, RMB is removed too and requests one native jump
+// through Hp2Motion. The exact original lists are restored whenever the
 // game regains control (menus, options, dialogue, inventory, save/load,
 // exit), so the controls menu never sees or saves the reduced bindings.
 struct MouseBindingGuard {
@@ -218,7 +229,12 @@ inline float Yaw(zCVob* vob) {
 
 // Shared gameplay safety gate for spells as well as movement. F11 only
 // switches the movement/camera adapter; it must not change spell eligibility.
+inline bool ConsoleVisible() {
+    return zCConsole::cur_console && zCConsole::cur_console->IsVisible();
+}
+
 inline bool ContextAvailable() {
+    if (ConsoleVisible()) return false;
     if (!ogame || !player || !zinput || ogame->IsOnPause() ||
         ogame->inLoadSaveGame || ogame->inLevelChange || player->openinventory ||
         player->IsDead() || !player->IsHuman() || player->IsMovLock()) return false;
@@ -250,6 +266,8 @@ inline void RestoreRootMotion() {
 }
 
 inline void Disable() {
+    motion.Reset(player);
+    ParryMovingCasting::Restore(player ? player->GetModel() : nullptr);
     RestoreRootMotion();
     // A load can already have destroyed the previous camera. Restore only
     // when it is still the engine's live camera, otherwise forget it.
@@ -261,9 +279,11 @@ inline void Disable() {
     orbit.Reset();
     locomotion.Step({});
     input = {};
-    planarX = planarZ = nativeJumpBuffer = 0.0f;
-    previousJump = false;
-    requireJumpRelease = true;
+    planarX = planarZ = 0.0f;
+    movementFeedback = {};
+    resumedNativeFall = false;
+    hasSafePosition = false;
+    safePositionAge = 0.0f;
     ownsInput = false;
     mouseConsumed = false;
     pendingMouseX = pendingMouseY = 0.0f;
@@ -273,6 +293,8 @@ inline void Disable() {
 // World load hooks must call Forget before freeing the old world if they
 // cannot guarantee that its camera/model is still alive.
 inline void Forget() {
+    motion.Forget();
+    ParryMovingCasting::Forget();
     scaledModel = nullptr;
     movingAI = nullptr;
     trackedCamera = nullptr;
@@ -280,12 +302,17 @@ inline void Forget() {
     orbit.Reset();
     locomotion.Step({});
     input = {};
-    planarX = planarZ = nativeJumpBuffer = 0.0f;
+    planarX = planarZ = 0.0f;
+    movementFeedback = {};
+    resumedNativeFall = false;
     hasSafePosition = false;
-    previousJump = ownsInput = mouseConsumed = false;
+    safePositionAge = 0.0f;
+    ownsInput = mouseConsumed = false;
     pendingMouseX = pendingMouseY = 0.0f;
     pendingSlot = 0;
-    requireJumpRelease = true;
+    events.Reset(events.Selected(), true);
+    pendingSpaceJump = previousSpace = false;
+    requireSpaceRelease = true;
 }
 
 inline void Reset() { Disable(); enabled = true; }
@@ -306,17 +333,43 @@ inline void CaptureInput(zCInput_Win32* controls) {
     // player is in a controllable state; RMB is our jump only while our
     // movement owns input. Elsewhere the game's bindings rule.
     // F11 first, so bindings match the movement mode in the same frame.
-    if (controls->KeyToggled(KEY_F11)) {
+    if (!ConsoleVisible() && controls->KeyToggled(KEY_F11)) {
         enabled = !enabled;
         Disable();
     }
-    if (ContextAvailable()) mouseGuard.Engage(controls, true, enabled);
+    const bool context = ContextAvailable();
+    const bool left = controls->GetMouseButtonPressedLeft() != 0;
+    const bool right = controls->GetMouseButtonPressedRight() != 0;
+    int spellSlot = 0;
+    if (context) {
+        constexpr int keys[] = {KEY_1, KEY_2, KEY_3, KEY_4, KEY_5,
+                                KEY_6, KEY_7, KEY_8, KEY_9, KEY_0};
+        for (int i = 0; i < 10; ++i)
+            if (controls->KeyToggled(keys[i])) { spellSlot = i + 1; break; }
+    }
+    events.Capture(context, left, right, spellSlot);
+    if (events.LastLeftReleaseSequence() && captureReleaseTarget)
+        captureReleaseTarget(events.LastLeftReleaseSequence());
+    if (spellSlot) pendingSlot = spellSlot;
+    const bool space = context && controls->KeyPressed(KEY_SPACE) != 0;
+    if (!space) requireSpaceRelease = false;
+    if (space && !previousSpace && !requireSpaceRelease) pendingSpaceJump = true;
+    previousSpace = space;
+    if (!context) { pendingSpaceJump = false; requireSpaceRelease = true; }
+    if (context) mouseGuard.Engage(controls, true, enabled);
     else ReleaseNativeBindings();
     // Spells retain LMB ownership when F11 restores native movement.
     // Leave native action input untouched in dialogue and other unsafe states.
     if (ContextAvailable() && controls->GetMouseButtonPressedLeft())
         controls->SetState(GAME_ACTION, 0);
-    if (!Available()) { Disable(); return; }
+    if (!Available()) {
+        // The HUD keeps its events in F11 mode, but our jump must not replay
+        // an old RMB/Space tap when custom movement is enabled again.
+        events.ConsumeRightPressed();
+        pendingSpaceJump = false;
+        Disable();
+        return;
+    }
     ownsInput = true;
     if (!trackedCamera) currentCameraYaw = Yaw(zCAICamera::current->camVob);
     input = {};
@@ -338,11 +391,6 @@ inline void CaptureInput(zCInput_Win32* controls) {
     }
     input.mouseX = pendingMouseX;
     input.mouseY = pendingMouseY;
-    constexpr int keys[] = {KEY_1, KEY_2, KEY_3, KEY_4, KEY_5,
-                            KEY_6, KEY_7, KEY_8, KEY_9, KEY_0};
-    for (int i = 0; i < 10; ++i) {
-        if (controls->KeyToggled(keys[i])) { pendingSlot = i + 1; break; }
-    }
     input.slotPressed = pendingSlot;
     // Clear forced logical states. G1 still reads physical bindings when the
     // forced value is zero; OverrideNativeState masks those during native AI.
@@ -409,54 +457,79 @@ inline void Strafe(oCAIHuman* ai, bool right) {
     else ai->StrafeLeft();
 }
 
+inline bool RecoverNearbyFloorPenetration(oCAIHuman* ai) {
+    // Use elapsed wall frame time here: a long frame must expire this small
+    // recovery window, even though locomotion clamps its simulation step.
+    const float rawSeconds = ztimer ? ztimer->frameTimeFloat * 0.001f : 0.0f;
+    safePositionAge += std::isfinite(rawSeconds) ? std::max(0.0f, rawSeconds) : 0.5f;
+    if (safePositionAge > 0.5f) hasSafePosition = false;
+    const int body = player->GetBodyState() & BS_ONLY_STATE;
+    const bool groundBody = body == BS_STAND || body == BS_WALK ||
+        body == BS_RUN || body == BS_SPRINT || body == BS_CASTING;
+    if (!groundBody || motion.Active()) {
+        hasSafePosition = false;
+        return false;
+    }
+    const zVEC3 here = player->GetPositionWorld();
+    const zVEC3 velocity = player->GetVelocity();
+    if (ai->state == zCAIPlayer::zMV_STATE_STAND && ai->aboveFloor >= -10.0f &&
+        ai->aboveFloor <= 20.0f && std::isfinite(velocity[1]) &&
+        std::fabs(velocity[1]) <= 25.0f) {
+        lastSafePosition = here;
+        hasSafePosition = true;
+        safePositionAge = 0.0f;
+        return false;
+    }
+    if (!hasSafePosition || !std::isfinite(ai->aboveFloor) || ai->aboveFloor >= -45.0f)
+        return false;
+    const float horizontal = std::hypot(here[0] - lastSafePosition[0],
+                                         here[2] - lastSafePosition[2]);
+    const float dropped = lastSafePosition[1] - here[1];
+    // Preserve native falls, knockback and scripted/external physics. The
+    // recovery is only a one-off fix for a small non-physical floor overlap.
+    const bool recover = !player->physicsEnabled && std::isfinite(horizontal) &&
+        std::isfinite(dropped) && horizontal <= 100.0f &&
+        dropped >= 45.0f && dropped <= 150.0f;
+    hasSafePosition = false;
+    if (!recover) return false;
+    player->SetPositionWorld(lastSafePosition);
+    planarX = planarZ = 0.0f;
+    movementFeedback = {};
+    motion.Reset(player);
+    ParryMovingCasting::Restore(player->GetModel());
+    ++floorRecoveries;
+    return true;
+}
+
 inline void BeforeHumanAI(oCAIHuman* ai) {
     if (!ai || ai->npc != player) return;
     RestoreRootMotion();
     if (!OwnsInput()) { Disable(); return; }
+    input.jumpPressed = events.ConsumeRightPressed() || pendingSpaceJump;
+    pendingSpaceJump = false;
     if (ai->IsInWater() || ai->state == zCAIPlayer::zMV_STATE_SWIM ||
         ai->state == zCAIPlayer::zMV_STATE_DIVE) { Disable(); return; }
     movementDelta = FrameSeconds();
-    if (ai->state == zCAIPlayer::zMV_STATE_STAND && ai->aboveFloor >= -10.0f &&
-        ai->aboveFloor <= 20.0f) {
-        lastSafePosition = player->GetPositionWorld();
-        hasSafePosition = true;
-    } else if (hasSafePosition && ai->aboveFloor < -45.0f) {
-        // Feet far below the floor under him: he went through the ground.
-        player->SetPositionWorld(lastSafePosition);
-        planarX = planarZ = 0.0f;
-        return;
-    }
+    resumedNativeFall = false;
+    if (RecoverNearbyFloorPenetration(ai)) return;
     const bool grounded = ai->state == zCAIPlayer::zMV_STATE_STAND &&
                           ai->aboveFloor >= -8.0f && ai->aboveFloor <= 14.0f;
     pendingMove = locomotion.Step({true, movementDelta, currentCameraYaw,
         input.forward, input.right, planarX, planarZ,
-        grounded, input.jumpHeld, input.leftHeld});
+        grounded, false, input.leftHeld}); // jump has one request owner below
     planarX = pendingMove.velocityX;
     planarZ = pendingMove.velocityZ;
-    nativeJumpBuffer = std::max(0.0f, nativeJumpBuffer - movementDelta);
-    if (!input.jumpHeld) requireJumpRelease = false;
-    if (input.jumpHeld && !previousJump && !requireJumpRelease)
-        nativeJumpBuffer = 0.15f;
-    previousJump = input.jumpHeld;
-    bool jumpStarted = false;
-    if ((pendingMove.jump || nativeJumpBuffer > 0.0f) &&
-        ai->CanJump(0)) {
-        jumpStarted = ai->JumpForward() != 0;
-        if (jumpStarted) nativeJumpBuffer = 0.0f;
-    }
-    // JumpForward can seed native horizontal ballistic velocity. Planar
-    // travel has one owner here; leave its vertical impulse/gravity intact.
-    ai->velocity[0] = ai->velocity[2] = 0.0f;
-    if (player->physicsEnabled) {
-        auto* body = player->GetRigidBody();
-        if (body) body->SetVelocity(zVEC3(0.0f, body->v[1], 0.0f));
-    }
-    // grounded was sampled before JumpForward. Do not immediately replace
+    const bool jumpStarted = motion.Before(ai, player, true, movementDelta,
+        input.jumpHeld, input.jumpPressed);
+    // Native body velocity belongs to gravity, impacts and external launches;
+    // planar command movement never erases those components.
+    // grounded was sampled before takeoff. Do not immediately replace
     // its jump animation, or an invest/cast animation, with a ground command.
-    if (grounded && !jumpStarted && !ai->IsInCastAni() && (input.leftHeld || castPose)) {
+    if (grounded && !jumpStarted && !motion.Active() && !ai->IsInCastAni() &&
+        (input.leftHeld || castPose)) {
         // Casting stance: stop the walk animation (Harry still moves).
         if (ai->IsWalking()) ai->_Stand();
-    } else if (grounded && !jumpStarted && !ai->IsInCastAni()) {
+    } else if (grounded && !jumpStarted && !motion.Active() && !ai->IsInCastAni()) {
         // Harry keeps facing the camera; the animation follows the key
         // direction (run, run backwards, strafe) instead of a moonwalk.
         if (std::fabs(input.forward) >= std::fabs(input.right) && input.forward > 0.0f)
@@ -471,14 +544,15 @@ inline void BeforeHumanAI(oCAIHuman* ai) {
     if (scaledModel) {
         savedScaleX = scaledModel->aniTransScale[0];
         savedScaleZ = scaledModel->aniTransScale[2];
-        // Native animations retain their vertical motion/gravity. Horizontal
-        // travel is supplied once below, avoiding doubled running speed.
+        // Horizontal command travel is supplied once below. Hp2Motion only
+        // suppresses root Y of its own jump, preserving native physics.
         scaledModel->aniTransScale[0] = 0.0f;
         scaledModel->aniTransScale[2] = 0.0f;
     }
 }
 
 inline void AfterHumanAI(oCAIHuman* ai) {
+    if (ai && ai->npc == player) motion.After(ai, player);
     if (!ai || movingAI != ai) return;
     const auto move = pendingMove;
     RestoreRootMotion();
@@ -497,20 +571,23 @@ inline void AfterHumanAI(oCAIHuman* ai) {
     // Short collision-resolved steps handle corners without tunnelling at
     // a low frame rate. Gravity and vertical collision remain in native DoAI.
     const int steps = std::max(1, int(std::ceil(distance / 10.0f)));
+    const zVEC3 beforePlanar = player->GetPositionWorld();
     for (int i = 0; i < steps; ++i) {
         player->BeginMovement();
         player->MoveWorld(x / steps, 0.0f, z / steps);
         player->EndMovement();
     }
-    // Gothic does not start a fall during a spell animation, so carrying
-    // Harry over an edge while casting left him hanging in the air. Lower
-    // him onto the floor beneath instead (at most a fall speed per frame).
-    if ((input.leftHeld || ai->IsInCastAni()) &&
-        ai->state == zCAIPlayer::zMV_STATE_STAND && ai->aboveFloor > 20.0f) {
-        const float drop = std::min(ai->aboveFloor, 900.0f * movementDelta);
-        player->BeginMovement();
-        player->MoveWorld(0.0f, -drop, 0.0f);
-        player->EndMovement();
-    }
+    const zVEC3 afterPlanar = player->GetPositionWorld();
+    movementFeedback = ParryHotter::ResolvePlanarFeedback(x, z,
+        afterPlanar[0] - beforePlanar[0], afterPlanar[2] - beforePlanar[2], movementDelta);
+    planarX = movementFeedback.velocityX;
+    planarZ = movementFeedback.velocityZ;
+    const bool casting = input.leftHeld || castPose || ai->IsInCastAni();
+    resumedNativeFall = motion.ResumeNativeFall(ai, player, casting);
+    const bool grounded = ai->state == zCAIPlayer::zMV_STATE_STAND &&
+        ai->aboveFloor >= -8.0f && ai->aboveFloor <= 14.0f && !motion.Active() &&
+        std::fabs(player->GetVelocity()[1]) <= 25.0f;
+    ParryMovingCasting::Update(player->GetModel(), casting && grounded,
+        movementFeedback.velocityX, movementFeedback.velocityZ, Yaw(player), movementDelta);
 }
 } // namespace ParryControls

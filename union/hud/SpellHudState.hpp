@@ -1,6 +1,6 @@
 // Parry Hotter - deterministic input rules independent of ZenGin.
 // Can be compiled/tested without Gothic or Union.
-// A spell only fires on a fresh LMB click, while RMB is held, with a target.
+// Hold LMB to aim, release it to cast at a live target. RMB is jump.
 #pragma once
 #include <array>
 #include <cstddef>
@@ -55,6 +55,11 @@ struct Output {
     bool startAim = false;
     bool stopAim = false;
     bool cast = false;
+    // A slot selection and release can arrive together. The release belongs
+    // to the spell aimed before that selection, not an unprepared new spell.
+    int castSlot = -1;
+    int aimSlot = -1;
+    bool slotChanged = false;
 };
 
 class Controller final {
@@ -70,9 +75,12 @@ public:
             // After a menu, cutscene or load, LMB must be seen released
             // once; a button held through the interruption never aims/casts.
             requireLeftRelease_ = true;
+            aimedSlot_ = -1;
             out.selected = selected_;
             return out;
         }
+        const int previousSlot = selected_;
+        const int releaseSlot = aimedSlot_;
         if (in.slotPressed >= 1 && in.slotPressed <= kSpellCount) {
             selected_ = in.slotPressed - 1;
         }
@@ -81,21 +89,28 @@ public:
         const bool aiming = holding && kSpellAvailable[selected_];
         out.hudVisible = true;
         out.selected = selected_;
+        out.slotChanged = selected_ != previousSlot;
         out.aiming = aiming;
+        out.aimSlot = aiming ? selected_ : -1;
         out.targetSymbolVisible = aiming && in.hasLiveNpcTarget;
-        out.startAim = aiming && !previousAim_;
-        out.stopAim = !aiming && previousAim_;
+        const bool reprepare = previousAim_ && aiming && releaseSlot != selected_;
+        out.startAim = aiming && (!previousAim_ || reprepare);
+        out.stopAim = previousAim_ && (!aiming || reprepare);
         // Only a real release of an aiming LMB casts. Switching to an empty
         // slot while holding stops aiming without casting.
         out.cast = previousAim_ && !in.leftHeld && in.hasLiveNpcTarget &&
-                   kSpellAvailable[selected_];
+                   releaseSlot >= 0 && releaseSlot < kSpellCount &&
+                   kSpellAvailable[releaseSlot] && kSpellAvailable[selected_];
+        out.castSlot = out.cast ? releaseSlot : -1;
         previousAim_ = aiming;
+        aimedSlot_ = aiming ? selected_ : -1;
         return out;
     }
     int Selected() const { return selected_; }
     void Reset() {
         selected_ = 0;
         previousAim_ = false;
+        aimedSlot_ = -1;
         requireLeftRelease_ = false;
     }
     void ResetAfterInterruption() {
@@ -105,6 +120,7 @@ public:
 private:
     int selected_ = 0;
     bool previousAim_ = false;
+    int aimedSlot_ = -1;
     bool requireLeftRelease_ = false;
 };
 } // namespace ParryHotter

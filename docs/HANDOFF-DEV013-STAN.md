@@ -223,3 +223,34 @@ Ręczna ścieżka, przydatna również po zmianach skryptów lub zasobów:
   lokalnie).
 - Nie wyłączać weryfikacji TLS ani sum kontrolnych. Zachowywać kopie
   zapasowe plików gry.
+
+## Sterowanie i diagnostyka V3 (13.11.2026)
+
+Zintegrowano kolejkę zdarzeń myszy/cyfr, migawkę celu z puszczenia LPM, osobny
+slot rzutu oraz oczekiwanie na gotowość natywnej magii po krótkim kliknięciu.
+Zachowano zasięg 1900 cm i odmowę bez żywego, widocznego NPC. Rzut sprawdza
+ponownie cel i kontekst tuż przed oryginalnym Cast. Konsola przekazuje wejście
+Gothicowi i blokuje skróty moda; po przerwaniu trzeba puścić przyciski.
+
+Nowa kamera obniża pivot przy przeszkodzie i pod dachem oraz śledzi przekrój
+near clip. Skok ma jednorazowy impuls na natywnej fizyce, docelowo 70 cm, bez
+ponawiania z przytrzymania. Ruch korzysta z rzeczywistych wyników kolizji;
+opadanie nie wykonuje już ręcznych przesunięć w dół. Proceduralna korekta
+kości nóg umożliwia ruch w pozie czaru bez uruchamiania IsWalking. Nowy raw hook:
+`zCModel::AdvanceAnis @ 0x00562CD0` (główna pętla blendowania jest tam inline).
+Skok i cykl nóg są autorskimi przybliżeniami wymagającymi próby w grze.
+
+Znacznik: `PH_CONTROLS_V3_EVENTS_READY`. Log zawiera sekwencje wejścia, ID żądań,
+wynik Cast i opóźnienie, koszty/inwestowanie many, przyczyny anulowań, ID/fazy
+skoków z wysokością/czasem oraz próbki ruchu i kamery 2 Hz. Bufor linii 1024 B,
+limit sesji 4 MiB. Narzędzie `python -m tools.analyze_controls_log PLIK --json`
+podsumowuje obserwacje; brak logu sukcesu nie jest traktowany jako sukces.
+Scenariusze: [TESTY-STEROWANIA-HP2.md](TESTY-STEROWANIA-HP2.md).
+
+W dotychczasowym drzewie repozytorium znaleziono także archiwum modelu Harry'ego.
+Usunięto je z bieżącej gałęzi i wykluczono przez .gitignore; zachowana lokalna
+identyczna kopia w środowisku roboczym: `/workspace/ParryHotter-local-assets/`.
+Nie zmieniano zasobów ani kopii bezpieczeństwa w instalacji Windows użytkownika.
+
+Pełne efekty HP2 i ragdoll nadal pozostają osobnym zadaniem. Ten zestaw zmian
+nie potwierdza ich ukończenia ani zgodności sterowania 1:1 bez testu w Gothic.

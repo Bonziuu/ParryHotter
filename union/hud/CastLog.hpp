@@ -14,7 +14,7 @@ namespace ParryHotter {
 
 class CastLog final {
 public:
-    static constexpr long kMaxBytes = 2 * 1024 * 1024;
+    static constexpr long kMaxBytes = 4 * 1024 * 1024;
 
     explicit CastLog(const char* path = "ParryHotter_cast.log") : path_(path) {}
     CastLog(const CastLog&) = delete;
@@ -23,7 +23,7 @@ public:
 
     void Line(const char* format, ...) {
         if (!Open() || written_ >= kMaxBytes) return;
-        char message[480];
+        char message[1024];
         va_list args;
         va_start(args, format);
         std::vsnprintf(message, sizeof(message), format, args);

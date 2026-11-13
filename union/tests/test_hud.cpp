@@ -24,7 +24,7 @@ int main() {
     assert(o.aiming && !o.startAim && !o.cast); // holding never fires
     // Releasing LMB on a valid target casts exactly once.
     o = ctl.Step({true, 0, false, false, true});
-    assert(o.cast && o.stopAim && !o.aiming);
+    assert(o.cast && o.castSlot == 2 && o.stopAim && !o.aiming);
     o = ctl.Step({true, 0, false, false, true});
     assert(!o.cast && !o.stopAim);
 
@@ -51,7 +51,8 @@ int main() {
     o = ctl.Step({true, 0, false, true, true});
     assert(o.startAim);
     o = ctl.Step({true, 2, false, true, true});
-    assert(o.selected == 1 && o.aiming && !o.startAim && !o.cast);
+    assert(o.selected == 1 && o.aiming && o.startAim && o.stopAim && !o.cast);
+    assert(o.slotChanged && o.aimSlot == 1 && o.castSlot == -1);
     o = ctl.Step({true, 7, false, true, true});
     assert(o.selected == 6 && !o.aiming && o.stopAim && !o.cast);
     o = ctl.Step({true, 0, false, false, true});
@@ -98,5 +99,40 @@ int main() {
     assert(o.startAim && !o.cast);
     o = ctl.Step({true, 0, false, false, true});
     assert(o.cast);
+
+    // A same-frame selection and release belongs to the previously prepared
+    // spell. The HUD may select the next slot without changing cast identity.
+    ctl.Reset();
+    o = ctl.Step({true, 1, false, true, true});
+    assert(o.startAim && o.aimSlot == 0);
+    o = ctl.Step({true, 2, false, false, true});
+    assert(o.selected == 1 && o.slotChanged);
+    assert(o.cast && o.castSlot == 0 && !o.aiming && o.stopAim);
+    o = ctl.Step({true, 0, false, false, true});
+    assert(!o.cast && o.castSlot == -1);
+    o = ctl.Step({true, 0, false, true, true});
+    assert(o.startAim && o.aimSlot == 1);
+    o = ctl.Step({true, 0, false, false, true});
+    assert(o.cast && o.castSlot == 1);
+
+    // Choosing an empty slot is an explicit cancellation even if a raw
+    // frame snapshot reports its selection together with LMB release.
+    o = ctl.Step({true, 1, false, true, true});
+    assert(o.aiming && o.aimSlot == 0);
+    o = ctl.Step({true, 7, false, false, true});
+    assert(o.selected == 6 && o.stopAim && !o.cast && o.castSlot == -1);
+
+    // Switching between available spells while held starts one fresh aim
+    // transition. No held frame, target loss or cooldown can auto-fire it.
+    o = ctl.Step({true, 1, false, true, true});
+    assert(o.startAim && o.aimSlot == 0);
+    o = ctl.Step({true, 6, false, true, true});
+    assert(o.startAim && o.stopAim && o.aimSlot == 5 && !o.cast);
+    for (int frame = 0; frame < 500; ++frame) {
+        o = ctl.Step({true, 0, false, true, frame % 2 == 0});
+        assert(o.aiming && o.aimSlot == 5 && !o.cast && !o.startAim && !o.stopAim);
+    }
+    o = ctl.Step({true, 0, false, false, true});
+    assert(o.cast && o.castSlot == 5);
     std::cout << "Parry Hotter HP2 hold-LMB aim, release-LMB cast: OK\n";
 }

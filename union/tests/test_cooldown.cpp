@@ -66,5 +66,32 @@ int main() {
         assert(!cd.Ready(i, mana, t0 + duration - milliseconds(1)));
         assert(cd.Ready(i, mana, t0 + duration));
     }
+
+    // Script costs replace only the requested slot and remain independent of
+    // cooldown history. Invalid values must preserve the last known value.
+    SpellCooldown scripted;
+    assert(scripted.ManaCost(1) == SpellCooldown::ManaCosts[1]);
+    assert(scripted.SetManaCost(1, 4));
+    assert(scripted.ManaCost(1) == 4);
+    assert(!scripted.Ready(1, 3, t0));
+    assert(scripted.Ready(1, 4, t0));
+    assert(scripted.ManaCost(0) == SpellCooldown::ManaCosts[0]);
+    assert(!scripted.SetManaCost(1, -1));
+    assert(!scripted.SetManaCost(-1, 4));
+    assert(!scripted.SetManaCost(SpellCooldown::Count, 4));
+    assert(!scripted.SetManaCost(6, 4));
+    assert(scripted.ManaCost(1) == 4);
+    assert(scripted.ManaCost(-1) == 0);
+    assert(scripted.ManaCost(SpellCooldown::Count) == 0);
+    assert(scripted.Record(1, 4, t0));
+    assert(scripted.SetManaCost(1, 6));
+    assert(!scripted.Ready(1, 100, t0));
+    scripted.Reset();
+    assert(scripted.ManaCost(1) == 6);
+    assert(!scripted.Ready(1, 5, t0));
+    assert(scripted.Ready(1, 6, t0));
+    assert(scripted.SetManaCost(1, 0));
+    assert(scripted.Ready(1, 0, t0));
+    assert(!scripted.Ready(6, 100, t0));
     std::cout << "Parry Hotter mana/cooldown logic: OK\n";
 }

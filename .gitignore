@@ -16,10 +16,9 @@ __pycache__/
 *.pyc
 .parryhotter/
 
-# Local source archives and Blender assets; allow the published converted bundle
+# Local source archives, converted models and Blender assets
 ParryHotter-private/
 ParryHotter_Harry_*.zip
-!/ParryHotter_Harry_Gothic.zip
 ParryHotter_DEV*_sources_and_model.zip
 *.blend
 *.blend1

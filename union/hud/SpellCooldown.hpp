@@ -19,6 +19,19 @@ public:
         600, 3600, 2500, 1900, 2800, 5200, 0, 0, 0, 0
     }};
 
+    // The active game scripts own native mana costs. Defaults remain usable
+    // before the parser exists; loading a save resets cooldowns, not costs.
+    int ManaCost(int slot) const {
+        return slot >= 0 && slot < Count ? manaCosts_[slot] : 0;
+    }
+
+    bool SetManaCost(int slot, int cost) {
+        if (slot < 0 || slot >= Count || !kSpellAvailable[slot] || cost < 0)
+            return false;
+        manaCosts_[slot] = cost;
+        return true;
+    }
+
     bool ReadyByTime(int slot, TimePoint now) const {
         if (slot < 0 || slot >= Count || !kSpellAvailable[slot]) return false;
         if (!used_[slot]) return true;
@@ -26,7 +39,7 @@ public:
     }
 
     bool Ready(int slot, int mana, TimePoint now) const {
-        return slot >= 0 && slot < Count && mana >= ManaCosts[slot] &&
+        return slot >= 0 && slot < Count && mana >= manaCosts_[slot] &&
                ReadyByTime(slot, now);
     }
 
@@ -58,6 +71,7 @@ public:
     }
 
 private:
+    std::array<int, Count> manaCosts_ = ManaCosts;
     std::array<TimePoint, Count> last_{};
     std::array<bool, Count> used_{};
 };

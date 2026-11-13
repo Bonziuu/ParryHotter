@@ -32,6 +32,7 @@
 #include "CastLedger.hpp"
 #include "CastLog.hpp"
 #include "AimAssist.hpp"
+#include "ControlsTelemetry.hpp"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -43,6 +44,8 @@
 #include "PlayerControls.hpp"
 #include "CastingAnimations.hpp"
 #include "SpellTargeting.hpp"
+#include "Hp2Camera.hpp"
+#include "MovingCasting.hpp"
 using namespace Gothic_I_Classic;
 
 // Custom damage hook has access to the real victim, attacker and spell ID.
@@ -67,6 +70,12 @@ namespace {
         ~OwnMagicCall() { --gOwnMagicCall; }
     };
     bool DriveNativeMagic();
+    void CaptureReleaseTarget(std::uint64_t sequence);
+    oCNpc* GetCenteredNpcTarget();
+    void ClearReleaseTargets();
+    const char* TargetFailure(oCNpc* target, bool lineOfSight = true);
+    void LowerWand();
+    void UpdateSpellPreparation();
     void LogNativeMagic(oCAIHuman* ai, bool after);
     void LogPlayerMagicAI(oCAIHuman* ai, bool after, bool driving);
     unsigned gPlayerMagicCalls = 0;
@@ -111,6 +120,17 @@ namespace Gothic_I_Classic {
         return THISCALL(Ivk_PH_SpellStatus)();
     }
 
+    // AdvanceAnis contains the main node-blending loop inline. Hooking only
+    // CalcNodeListAniBlending would miss normal model updates in G1 1.08k.
+    auto& Ivk_PH_ModelAdvance = UnionCore::CreateHook(
+        PH_VIRTUAL(0x00562CD0) /* zCModel::AdvanceAnis */,
+        &zCModel::PH_AdvanceAnis, UnionCore::Hook_Auto);
+    void zCModel::PH_AdvanceAnis() {
+        ParryMovingCasting::BeforeBlend(this);
+        THISCALL(Ivk_PH_ModelAdvance)();
+        ParryMovingCasting::AfterBlend(this);
+    }
+
     auto& Ivk_PH_HumanAI = UnionCore::CreateHook(
         PH_VIRTUAL(0x00615A50) /* oCAIHuman::DoAI */, &oCAIHuman::PH_DoAI, UnionCore::Hook_Auto);
     void oCAIHuman::PH_DoAI(zCVob* vob, int& state) {
@@ -120,9 +140,18 @@ namespace Gothic_I_Classic {
             ParryControls::CaptureIfMissed(static_cast<zCInput_Win32*>(zinput));
         const bool own = this->npc && this->npc == player &&
             ParryControls::ContextAvailable();
-        ParryControls::maskNativeLeft = own && ParryControls::mouseGuard.StripsLeft();
-        ParryControls::maskNativeRight = own && ParryControls::mouseGuard.StripsRight();
-        if (this->npc && this->npc == player) LogJumpInput(this);
+        struct NativeMouseScope {
+            bool left = ParryControls::maskNativeLeft;
+            bool right = ParryControls::maskNativeRight;
+            NativeMouseScope(bool owns) {
+                ParryControls::maskNativeLeft = owns && ParryControls::mouseGuard.StripsLeft();
+                ParryControls::maskNativeRight = owns && ParryControls::mouseGuard.StripsRight();
+            }
+            ~NativeMouseScope() {
+                ParryControls::maskNativeLeft = left;
+                ParryControls::maskNativeRight = right;
+            }
+        } mouseScope(own);
         const bool driving = own && DriveNativeMagic();
         LogPlayerMagicAI(this, false, driving);
         ParryControls::BeforeHumanAI(this);
@@ -144,7 +173,7 @@ namespace Gothic_I_Classic {
         }
         LogPlayerMagicAI(this, true, driving);
         ParryControls::AfterHumanAI(this);
-        ParryControls::maskNativeLeft = ParryControls::maskNativeRight = false;
+        if (this->npc && this->npc == player) LogJumpInput(this);
     }
     auto& Ivk_PH_WeaponChoose = UnionCore::CreateHook(
         &oCAIHuman::WeaponChoose, &oCAIHuman::PH_WeaponChoose, UnionCore::Hook_Auto);
@@ -240,6 +269,19 @@ namespace Gothic_I_Classic {
     );
 
     void zCInput_Win32::PH_ProcessInputEvents() {
+        // The engine can poll again inside player AI. Read physical input
+        // outside our AI masks, otherwise a held button looks released.
+        ParryControls::NativePlayerInputScope physicalState(false);
+        ParryControls::NativeMagicInputScope physicalMagic(false);
+        struct PhysicalMouse {
+            bool left = ParryControls::maskNativeLeft;
+            bool right = ParryControls::maskNativeRight;
+            PhysicalMouse() { ParryControls::maskNativeLeft = ParryControls::maskNativeRight = false; }
+            ~PhysicalMouse() {
+                ParryControls::maskNativeLeft = left;
+                ParryControls::maskNativeRight = right;
+            }
+        } physicalMouse;
         THISCALL(Ivk_PH_ProcessInputEvents)();
         ++ParryControls::inputHookCalls;
         ParryControls::CaptureInput(this);
@@ -304,6 +346,20 @@ namespace {
     ParryHotter::AimCamera gCamera;
     // Development diagnostics: Gothic/System/ParryHotter_cast.log.
     ParryHotter::CastLog gLog;
+    ParryHotter::ControlsTelemetry gControlsLog;
+    std::uint64_t gInputSequence = 0;
+    std::uint64_t gLastRequestId = 0;
+    std::uint64_t gRequestId = 0;
+    std::uint64_t gRequestSequence = 0;
+    std::uint64_t gRequestGeneration = 0;
+    int gPreparedSlot = -1;
+    bool gPreparePending = false;
+    bool gPreparationBound = false;
+    ParryHotter::SpellCooldown::TimePoint gPrepareExpires{};
+    oCNpc* gStickyTarget = nullptr; // Compared only against the current world NPC list.
+    ParryHotter::CastLedger::TimePoint gRequestStarted{};
+    struct ReleasedTarget { std::uint64_t sequence = 0; oCNpc* npc = nullptr; };
+    std::array<ReleasedTarget, ParryHotter::InputEvents::Capacity> gReleasedTargets{};
     ParryHotter::SpellCooldown gCooldown;
     ParryHotter::CastLedger gCasts;
     struct CastReferences {
@@ -313,6 +369,7 @@ namespace {
     };
     std::array<CastReferences, ParryHotter::CastLedger::Capacity> gCastReferences{};
     oCSpell* gRequestedSpell = nullptr;
+    oCSpell* gCancelledSpell = nullptr;
     // Set by a successful release-cast; the wand lowers once it resolves.
     bool gLowerAfterCast = false;
     enum class CastAttempt { Refused, Requested, NotReady };
@@ -325,7 +382,8 @@ namespace {
 
     bool BlocksForeignPlayerMagic(oCSpell* spell) {
         return spell && player && spell->spellCasterNpc == player &&
-               ParryControls::ContextAvailable();
+               (ParryControls::ContextAvailable() || ParryControls::ConsoleVisible() ||
+                spell == gCancelledSpell);
     }
 
     int InvestTracked(oCSpell* spell) {
@@ -339,19 +397,71 @@ namespace {
         // Already fully charged: keep the effect/mana until release, without
         // repeatedly running the native investment or consuming more mana.
         if (DeferChargedSpell(spell)) return 1;
-        return (spell->*Gothic_I_Classic::Ivk_PH_Invest)();
+        if (!spell) return 0;
+        auto* actor = player;
+        const auto requestGeneration = gRequestGeneration;
+        spell->AddRef(); // Native investment runs script callbacks.
+        const int manaBefore = player ? player->GetAttribute(NPC_ATR_MANA) : -1;
+        const int result = (spell->*Gothic_I_Classic::Ivk_PH_Invest)();
+        if (player && player == actor && requestGeneration == gRequestGeneration &&
+            spell->spellCasterNpc == player && OwnsMagicInput()) {
+            const int manaAfter = player->GetAttribute(NPC_ATR_MANA);
+            const std::array<int, 4> state{{manaAfter, spell->manaInvested, spell->spellStatus, result}};
+            static std::array<int, 4> last{};
+            static std::uint64_t generation = ~std::uint64_t(0);
+            if (state != last || generation != gRequestGeneration || manaBefore != manaAfter) {
+                last = state; generation = gRequestGeneration;
+                gLog.Line("native Invest request=%llu slot=%d manaBefore=%d manaAfter=%d invested=%d status=%d result=%d",
+                          static_cast<unsigned long long>(gRequestId), gPreparedSlot,
+                          manaBefore, manaAfter, state[1], state[2], result);
+            }
+        }
+        spell->Release();
+        return result;
     }
 
-    // Diagnostics: every change of the jump input with the native facts
-    // that decide whether a jump can start.
+    // Each phase is emitted once per physical jump request/flight, including
+    // taps shorter than one AI frame and failures before a buffered retry.
     void LogJumpInput(oCAIHuman* ai) {
-        static bool lastJump = false;
-        const bool jump = ParryControls::GetInput().jumpHeld;
-        if (jump == lastJump || !ai) return;
-        lastJump = jump;
-        gLog.Line("jump input=%d owns=%d aiState=%d aboveFloor=%.1f canJump=%d body=%d",
-                  jump ? 1 : 0, ParryControls::OwnsInput() ? 1 : 0, ai->state,
-                  ai->aboveFloor, ai->CanJump(0), player ? player->GetBodyState() : -1);
+        if (!ai) return;
+        const auto& jump = ParryControls::motion.Telemetry();
+        static std::uint64_t requested = 0, accepted = 0, refused = 0, ended = 0;
+        const auto write = [&](std::uint64_t id, const char* phase, const char* reason,
+                               float age, float peak) {
+            gLog.Line("jump id=%llu seq=%llu phase=%s reason=%s held=%d physics=%d "
+                      "vy=%.1f floor=%.1f ageSec=%.3f peakCm=%.1f targetHeightCm=70",
+                      static_cast<unsigned long long>(id),
+                      static_cast<unsigned long long>(ParryControls::events.LastSequence()),
+                      phase, reason, ParryControls::GetInput().jumpHeld ? 1 : 0,
+                      player && player->physicsEnabled ? 1 : 0, jump.velocityY,
+                      jump.aboveFloor, age, peak);
+        };
+        if (jump.requested && jump.requestId != requested) {
+            requested = jump.requestId;
+            write(requested, "requested", "press", jump.age, jump.peakHeight);
+        }
+        if (jump.accepted && jump.activeId != accepted) {
+            accepted = jump.activeId;
+            write(accepted, "accepted", "accepted", jump.age, jump.peakHeight);
+        }
+        if ((jump.ignored || (jump.attempted && !jump.accepted)) && jump.requestId != refused) {
+            refused = jump.requestId;
+            write(refused, "refused", jump.reason, jump.age, jump.peakHeight);
+        }
+        if ((jump.landed || jump.interrupted) && jump.endedId && jump.endedId != ended) {
+            ended = jump.endedId;
+            write(ended, jump.landed ? "landed" : "interrupted",
+                  jump.landed ? "landed" : jump.reason, jump.endedAge, jump.endedPeakHeight);
+        }
+        static unsigned recoveries = 0;
+        if (recoveries != ParryControls::floorRecoveries) {
+            recoveries = ParryControls::floorRecoveries;
+            gLog.Line("movement seq=%llu floorRecovery=%u reason=nearby_floor_penetration",
+                      static_cast<unsigned long long>(ParryControls::events.LastSequence()), recoveries);
+        }
+        if (ParryControls::resumedNativeFall)
+            gLog.Line("movement seq=%llu nativeFallResumed=1 reason=magic_pose_over_edge",
+                      static_cast<unsigned long long>(ParryControls::events.LastSequence()));
     }
 
     // Diagnostics: which model prototypes (base + overlays) the hero carries
@@ -375,50 +485,12 @@ namespace {
                   protos, ani ? ani->ascName.ToChar() : "missing");
     }
 
-    // HP2 (PC) BaseCam: the camera orbits a pivot just above Harry's head at
-    // a fixed distance, aimed along the mouse yaw/pitch, so Harry stays at
-    // the same place on screen and the centre dot is exactly where the
-    // camera looks. Geometry between pivot and camera pulls it in at once;
-    // it eases back out. Native camera AI still runs first (and alone in
-    // dialogues, cutscenes, water and with F11).
-    float gCameraDistance = 0.0f;
+    // Native camera AI runs first. The HP2 adapter rechecks the actual pivot
+    // after lowering it under roofs or while easing away from an obstacle.
     void PlaceHp2Camera(zCAICamera* camera) {
-        constexpr float kDistance = 300.0f;   // cm behind the pivot
-        // The view line passes this far above Harry's head, so he stands
-        // below the centre dot (HP2) instead of covering it.
-        constexpr float kAboveHead = 75.0f;
-        constexpr float kWallGap = 25.0f;     // keep the near plane out of walls
-        constexpr float kMinDistance = 40.0f;
-        if (!camera || camera != zCAICamera::current || !camera->camVob || !player ||
-            !ParryControls::OwnsInput()) {
-            gCameraDistance = 0.0f;
-            return;
-        }
-        zCWorld* world = player->GetHomeWorld();
-        if (!world) return;
-        const float yaw = ParryControls::currentCameraYaw * 0.01745329252f;
-        const float pitch = ParryControls::currentCameraPitch * 0.01745329252f;
-        const zVEC3 dir(std::sin(yaw) * std::cos(pitch), std::sin(pitch),
-                        std::cos(yaw) * std::cos(pitch));
-        zVEC3 pivot = player->GetPositionWorld();
-        pivot[1] = player->bbox3D.maxs[1] + kAboveHead;
-        float want = kDistance;
-        const int flags = zTRACERAY_STAT_POLY | zTRACERAY_VOB_IGNORE_NO_CD_DYN |
-                          zTRACERAY_VOB_IGNORE_CHARACTER | zTRACERAY_POLY_IGNORE_TRANSP;
-        const zVEC3 back = dir * -(kDistance + kWallGap);
-        if (world->TraceRayNearestHit(pivot, back, static_cast<zCVob*>(player), flags)) {
-            const zVEC3 hit = world->traceRayReport.foundIntersection - pivot;
-            const float blocked = std::sqrt(hit[0] * hit[0] + hit[1] * hit[1] + hit[2] * hit[2]);
-            want = std::clamp(blocked - kWallGap, kMinDistance, kDistance);
-        }
-        const float dt = ParryControls::FrameSeconds();
-        if (gCameraDistance <= 0.0f || want < gCameraDistance) gCameraDistance = want;
-        else gCameraDistance = std::min(want, gCameraDistance + 400.0f * dt);
-        const zVEC3 position = pivot - dir * gCameraDistance;
-        if (!std::isfinite(position[0]) || !std::isfinite(position[1]) ||
-            !std::isfinite(position[2])) return;
-        camera->camVob->SetPositionWorld(position);
-        camera->camVob->SetHeadingAtWorld(dir);
+        ParryCamera::Place(camera, player, ParryControls::OwnsInput(),
+            ParryControls::currentCameraYaw, ParryControls::currentCameraPitch,
+            ParryControls::FrameSeconds());
     }
 
     // HP2 quick tap: LMB released on a valid target before Gothic's invest
@@ -426,12 +498,14 @@ namespace {
     // captured on release as soon as the engine allows (or give up).
     oCNpc* gQueuedTarget = nullptr;
     int gQueuedSlot = -1;
+    std::uint64_t gQueuedSequence = 0;
     ParryHotter::CastLedger::Clock::time_point gQueuedExpires{};
 
     void ClearQueuedCast() {
         auto* target = gQueuedTarget;
         gQueuedTarget = nullptr;
         gQueuedSlot = -1;
+        gQueuedSequence = 0;
         if (target) target->Release();
     }
 
@@ -441,14 +515,14 @@ namespace {
         target->AddRef();
         gQueuedTarget = target;
         gQueuedSlot = slot;
+        gQueuedSequence = gInputSequence;
         gQueuedExpires = ParryHotter::CastLedger::Clock::now() +
             std::chrono::milliseconds(3000);
-        gLog.Line("cast slot=%d QUEUED until castable target=%p", slot,
-                  static_cast<void*>(target));
+        gLog.Line("cast slot=%d QUEUED until castable target=%p seq=%llu", slot,
+                  static_cast<void*>(target), static_cast<unsigned long long>(gQueuedSequence));
     }
     int gRequestedSlot = -1;
     oCNpc* gRequestedTarget = nullptr;
-    std::uint64_t gRequestGeneration = 0;
     bool gCastConfirmed = false;
     ParryHotter::CastLedger::TimePoint gRequestExpires{};
     ParryHotter::CastLedger::Id gHitCast = 0;
@@ -538,15 +612,41 @@ namespace {
         }
         const auto generation = gRequestGeneration;
         const int slot = gRequestedSlot;
+        const auto requestId = gRequestId;
+        const auto requestSequence = gRequestSequence;
+        const auto requestStarted = gRequestStarted;
         auto* target = ours ? gRequestedTarget : nullptr;
         // Native Cast runs scripts and damage hooks. Those callbacks can cancel
         // or replace the request; retain the objects and identify this request.
         if (ours) { spell->AddRef(); target->AddRef(); }
         ParryTargeting::Scope targeting(ours ? spell : nullptr);
+        if (ours) {
+            const char* failure = ParryControls::ContextAvailable() ? TargetFailure(target) : "context";
+            if (!failure && !spell->IsValidTarget(target)) failure = "native_target";
+            if (failure) {
+                gLog.Line("cast request=%llu slot=%d CANCEL reason=%s caster=%p targetType=%d targetAlgo=%d",
+                          static_cast<unsigned long long>(gRequestId), slot, failure,
+                          static_cast<void*>(spell->spellCasterNpc), spell->targetCollectType,
+                          spell->targetCollectAlgo);
+                target->Release(); spell->Release();
+                LowerWand();
+                return 0;
+            }
+        }
         const auto sameRequest = [&] {
             return generation == gRequestGeneration && spell == gRequestedSpell;
         };
         auto id = ours ? TrackEffect(spell, target, slot, generation) : 0;
+        // Retiring old effects can run engine callbacks and change the world,
+        // context or request. Never launch a request invalidated by one.
+        if (ours && (!sameRequest() || !ParryControls::ContextAvailable() || TargetFailure(target))) {
+            if (id) { gCasts.Revoke(id); ReapCasts(); }
+            gLog.Line("cast request=%llu slot=%d CANCEL reason=changed_before_cast",
+                      static_cast<unsigned long long>(requestId), slot);
+            if (sameRequest()) LowerWand();
+            target->Release(); spell->Release();
+            return 0;
+        }
         const int result = (spell->*Gothic_I_Classic::Ivk_PH_Cast)();
         if (ours) {
             if (result != 0) {
@@ -558,7 +658,13 @@ namespace {
                 gCasts.Revoke(id);
                 ReapCasts();
             }
-            gLog.Line("engine Cast slot=%d result=%d sameRequest=%d", slot, result, sameRequest() ? 1 : 0);
+            const double latency = std::chrono::duration<double, std::milli>(
+                ParryHotter::CastLedger::Clock::now() - requestStarted).count();
+            gLog.Line("engine Cast slot=%d result=%d sameRequest=%d request=%llu latencyMs=%.1f mana=%d seq=%llu",
+                      slot, result, sameRequest() ? 1 : 0,
+                      static_cast<unsigned long long>(requestId), latency,
+                      player ? player->GetAttribute(NPC_ATR_MANA) : -1,
+                      static_cast<unsigned long long>(requestSequence));
             if (sameRequest()) {
                 gCastConfirmed = result != 0;
                 NotifyCastResult(slot, result != 0);
@@ -910,6 +1016,7 @@ namespace {
     // we own input. Set the keys here, but expose them via GetState only
     // inside the player's MagicMode. Returns true while driving.
     bool DriveNativeMagic() {
+        UpdateSpellPreparation();
         if (!gAiming || !player) {
             SetNativeCastKeys(false);
             ParryControls::castPose = false;
@@ -917,6 +1024,14 @@ namespace {
         }
         bool hold = gChargeKeys;
         if (gRequestedSpell) {
+            const char* failure = TargetFailure(gRequestedTarget);
+            if (failure) {
+                gLog.Line("cast request=%llu slot=%d CANCEL reason=%s",
+                          static_cast<unsigned long long>(gRequestId), gRequestedSlot, failure);
+                LowerWand();
+                ParryControls::castPose = false;
+                return false;
+            }
             const int status = gRequestedSpell->GetSpellStatus();
             const bool instant = gRequestedSlot >= 0 &&
                 gRequestedSlot < ParryHotter::kSpellCount && kInstantSpell[gRequestedSlot];
@@ -1077,6 +1192,7 @@ namespace {
         gSlotDimmed.fill(-1);
         ParryCasting::Forget();
         gController.ResetAfterInterruption();
+    ParryControls::events.Reset(gController.Selected(), true);
     }
 
     void ShowHud() {
@@ -1206,7 +1322,8 @@ namespace {
     // The nearest ray hit must itself be a living NPC, not a wall or prop.
     // True when nothing blocks the straight line from the camera to the NPC.
     bool CameraSeesNpc(zCWorld* world, const zVEC3& eye, oCNpc* npc) {
-        const zVEC3 aim = npc->GetPositionWorld();
+        zVEC3 aim = npc->bbox3D.mins + (npc->bbox3D.maxs - npc->bbox3D.mins) * zVEC3(0.5f);
+        aim[1] += (npc->bbox3D.maxs[1] - npc->bbox3D.mins[1]) * 0.18f;
         const zVEC3 ray = aim - eye;
         const int flags = zTRACERAY_VOB_BBOX | zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
         if (!world->TraceRayNearestHit(eye, ray, static_cast<zCVob*>(player), flags))
@@ -1217,6 +1334,38 @@ namespace {
     bool InSpellRange(oCNpc* npc) {
         const float distance = player->GetDistanceToVob(*npc);
         return distance >= 0.0f && distance < float(ParryTargeting::kRangeCm);
+    }
+
+    const char* TargetFailure(oCNpc* target, bool lineOfSight) {
+        if (!player || !target || target == player) return "no_target";
+        if (target->IsDead()) return "target_dead";
+        if (target->GetHomeWorld() != player->GetHomeWorld()) return "target_world";
+        if (!InSpellRange(target)) return "target_range";
+        if (lineOfSight && !player->FreeLineOfSight(target)) return "target_occluded";
+        return nullptr;
+    }
+
+    void ClearReleaseTargets() {
+        for (auto& entry : gReleasedTargets) {
+            auto* target = entry.npc;
+            entry = {};
+            if (target) target->Release();
+        }
+    }
+
+    void CaptureReleaseTarget(std::uint64_t sequence) {
+        auto& entry = gReleasedTargets[sequence % gReleasedTargets.size()];
+        if (entry.npc) entry.npc->Release();
+        entry = {sequence, GetCenteredNpcTarget()};
+        if (entry.npc) entry.npc->AddRef();
+    }
+
+    oCNpc* TakeReleaseTarget(std::uint64_t sequence) {
+        auto& entry = gReleasedTargets[sequence % gReleasedTargets.size()];
+        if (entry.sequence != sequence) return nullptr;
+        auto* target = entry.npc;
+        entry = {};
+        return target; // Caller owns the retained reference.
     }
 
     // HP2 cursor snap: the living NPC nearest the screen centre inside an
@@ -1230,18 +1379,27 @@ namespace {
         for (auto* node = gameWorld->voblist_npcs->next; node; node = node->next) {
             oCNpc* npc = node->data;
             if (!npc || npc == player || npc->GetHomeWorld() != world) continue;
-            const zVEC3 at = npc->GetPositionWorld();
+            zVEC3 at = npc->bbox3D.mins + (npc->bbox3D.maxs - npc->bbox3D.mins) * zVEC3(0.5f);
+            at[1] += (npc->bbox3D.maxs[1] - npc->bbox3D.mins[1]) * 0.18f;
             candidates.push_back({{at[VX], at[VY], at[VZ]}, !npc->IsDead()});
             npcs.push_back(npc);
         }
         const ParryHotter::AimVec eyeV{eye[VX], eye[VY], eye[VZ]};
         const ParryHotter::AimVec dirV{direction[VX], direction[VY], direction[VZ]};
+        // Keep an already selected assist target through a small margin,
+        // but exact centre-ray hits below always take priority.
+        for (std::size_t i = 0; i < npcs.size(); ++i) {
+            if (npcs[i] != gStickyTarget) continue;
+            const std::vector<ParryHotter::AimCandidate> sticky{candidates[i]};
+            if (ParryHotter::PickAimAssist(eyeV, dirV, sticky, {10.0f, 2400.0f}) == 0 &&
+                !TargetFailure(npcs[i]) && CameraSeesNpc(world, eye, npcs[i])) return npcs[i];
+        }
         // Try candidates from the best angle down until one is visible.
         for (int attempts = 0; attempts < 4; ++attempts) {
             const int best = ParryHotter::PickAimAssist(eyeV, dirV, candidates);
             if (best < 0) return nullptr;
             oCNpc* npc = npcs[best];
-            if (InSpellRange(npc) && CameraSeesNpc(world, eye, npc)) return npc;
+            if (!TargetFailure(npc) && CameraSeesNpc(world, eye, npc)) return npc;
             candidates[best].alive = false; // exclude and look for the next
         }
         return nullptr;
@@ -1284,22 +1442,72 @@ namespace {
             else if (npc->IsDead()) state = ParryHotter::AimTargetState::DeadNpc;
             else if (npc->GetHomeWorld() != world) state = ParryHotter::AimTargetState::WrongWorld;
             else if (!InSpellRange(npc)) state = ParryHotter::AimTargetState::OutOfRange;
-            else {
+            else if (!TargetFailure(npc)) {
                 SetAimTargetState(ParryHotter::AimTargetState::ValidNpc);
+                gStickyTarget = npc;
                 return npc;
             }
         }
         if (oCNpc* snapped = AimAssistTarget(world, eye, direction)) {
             SetAimTargetState(ParryHotter::AimTargetState::ValidNpc);
+            gStickyTarget = snapped;
             return snapped;
         }
         SetAimTargetState(state);
+        gStickyTarget = nullptr;
         return nullptr;
     }
 
     // Use the native spellbook so that mana, target rules and Gothic visual FX
     // still apply. Test the call ordering on a LOCAL Gothic I installation;
     // engine variations (Steam + Union) may require an event hook.
+    void RefreshManaCosts() {
+        constexpr const char* names[] = {"SPL_SENDCAST_WINDFIST", "SPL_SENDCAST_ICECUBE",
+            "SPL_SENDCAST_BERZERK", "SPL_SENDCAST_THUNDERBALL", "SPL_SENDCAST_STORMFIST",
+            "SPL_SENDCAST_BREATHOFDEATH"};
+        for (int slot = 0; slot < 6; ++slot) {
+            int cost = ParryHotter::SpellCooldown::ManaCosts[slot];
+            auto* symbol = parser ? parser->GetSymbol(zSTRING(names[slot])) : nullptr;
+            if (symbol && symbol->type == zPAR_TYPE_INT && symbol->ele >= 1) {
+                int parsed = -1;
+                symbol->GetValue(parsed, 0);
+                if (parsed >= 0) cost = parsed;
+            }
+            if (cost != gCooldown.ManaCost(slot)) {
+                gLog.Line("mana slot=%d required=%d source=%s", slot, cost,
+                          symbol ? "scripts" : "fallback");
+            }
+            gCooldown.SetManaCost(slot, cost);
+        }
+    }
+
+    void UpdateSpellPreparation() {
+        if (!gPreparePending || !gAiming || !player) return;
+        if (!ParryControls::ContextAvailable() ||
+            ParryHotter::SpellCooldown::Clock::now() >= gPrepareExpires) {
+            gLog.Line("prepare slot=%d CANCEL reason=%s", gPreparedSlot,
+                      ParryControls::ContextAvailable() ? "ready_timeout" : "context");
+            LowerWand();
+            return;
+        }
+        auto* book = player->GetSpellBook();
+        auto* prepared = book ? book->GetSelectedSpell() : nullptr;
+        if (!prepared || prepared->GetSpellID() != kGothicSpellIds[gPreparedSlot] ||
+            !prepared->GetEnabled()) return;
+        if (!gPreparationBound && player->human_ai) {
+            gPreparationBound = true;
+            LogCastOverlay(gPreparedSlot,
+                ParryCasting::Bind(player->human_ai, player->GetModel()));
+        }
+        // ReadySpell selects synchronously in stock G1, but its draw-weapon
+        // message is asynchronous. Keep the intent through that transition.
+        if (player->fmode > 6) {
+            gPreparePending = false;
+            gLog.Line("prepare slot=%d READY npcMode=%d spellId=%d", gPreparedSlot,
+                      player->fmode, prepared->GetSpellID());
+        }
+    }
+
     void RaiseWand(int spellSlot) {
         if (!ParryControls::ContextAvailable() ||
             spellSlot < 0 || spellSlot >= ParryHotter::kSpellCount ||
@@ -1311,6 +1519,7 @@ namespace {
         ReleaseCastRequest();
         gChargeKeys = false;
         SetNativeCastKeys(false);
+        RefreshManaCosts();
         const int mana = player->GetAttribute(NPC_ATR_MANA);
         const auto now = ParryHotter::SpellCooldown::Clock::now();
         if (gAiming) {
@@ -1336,30 +1545,18 @@ namespace {
             !player->human_ai->IsInCastAni()) player->human_ai->_Stand();
         // ReadySpell returns an undocumented integer in Gothic 1. Never
         // assume 0 means failure; native Spell_Cast performs the final check.
-        const int readyResult = player->ReadySpell(id, 0);
-        auto* book = player->GetSpellBook();
-        auto* prepared = book ? book->GetSelectedSpell() : nullptr;
-        if (!prepared || prepared->GetSpellID() != id || !prepared->GetEnabled()) {
-            gLog.Line("raise slot=%d REFUSED ReadySpell(%d) book=%d prepared=%d preparedId=%d enabled=%d",
-                      spellSlot, id, book ? 1 : 0, prepared ? 1 : 0,
-                      prepared ? prepared->GetSpellID() : -1,
-                      prepared ? prepared->GetEnabled() : -1);
-            player->UnreadySpell();
-            return;
-        }
-        // Native invest animations work on the Gothic skeleton used by Harry.
-        if (player->human_ai) {
-            // Optional player overlay supplies the same native transition
-            // handles for all six spells, including one-phase Gothic spells.
-            // Incomplete/unloaded animation assets keep the native defaults.
-            const bool bound = ParryCasting::Bind(player->human_ai, player->GetModel());
-            LogCastOverlay(spellSlot, bound);
-            // ReadySpell only queued the native draw-weapon event. Starting
-            // an invest animation here bypassed that asynchronous preparation.
-            // Let MagicInvestSpell start it after native magic mode is ready.
-        }
+        auto* actor = player;
+        const auto generation = gRequestGeneration;
+        const int readyResult = actor->ReadySpell(id, 0);
+        if (player != actor || generation != gRequestGeneration ||
+            !ParryControls::ContextAvailable()) return;
         gManaPrepared = true;
         gAiming = true;
+        gPreparedSlot = spellSlot;
+        gPreparePending = true;
+        gPreparationBound = false;
+        gPrepareExpires = now + std::chrono::seconds(3);
+        UpdateSpellPreparation();
         AttachWand();
         gLog.Line("raise slot=%d OK spellId=%d mana=%d wandAttached=%d readyResult=%d npcMode=%d",
                   spellSlot, id, mana, gWandVisual ? 1 : 0, readyResult, player->fmode);
@@ -1374,8 +1571,18 @@ namespace {
         gLowerAfterCast = false;
         const bool wasAiming = gAiming;
         auto* actor = player;
+        if (player && gAiming) {
+            auto* book = player->GetSpellBook();
+            auto* cancelled = book ? book->GetSelectedSpell() : nullptr;
+            if (cancelled) cancelled->AddRef();
+            auto* previous = gCancelledSpell;
+            gCancelledSpell = cancelled;
+            if (previous) previous->Release();
+        }
         gAiming = false;
         gManaPrepared = false;
+        gPreparedSlot = -1;
+        gPreparePending = gPreparationBound = false;
         ReleaseCastRequest();
         if (player != actor || gAiming || gRequestedSpell) return;
         const auto generation = gRequestGeneration;
@@ -1396,7 +1603,12 @@ namespace {
     }
 
     void ResetSelectedSpellForScript() {
+        ClearReleaseTargets();
+        gStickyTarget = nullptr;
         ReleaseCastRequest();
+        auto* cancelled = gCancelledSpell;
+        gCancelledSpell = nullptr;
+        if (cancelled) cancelled->Release();
         ClearFlight();
         ReapCasts(true);
         gHitCast = 0;
@@ -1407,276 +1619,244 @@ namespace {
         if (symbol) symbol->SetValue(0, 0);
     }
 
-    CastAttempt CastAtNpc(int slot, oCNpc* target) {
-        if (!ParryControls::ContextAvailable() || gRequestedSpell ||
-            slot < 0 || slot >= ParryHotter::kSpellCount ||
-            !ParryHotter::kSpellAvailable[slot]) {
-            gLog.Line("cast slot=%d REFUSED context=%d pendingRequest=%d", slot,
-                      ParryControls::ContextAvailable() ? 1 : 0, gRequestedSpell ? 1 : 0);
+    CastAttempt CastAtNpc(int slot, oCNpc* target, std::uint64_t sequence) {
+        const char* failure = TargetFailure(target);
+        if (!ParryControls::ContextAvailable()) failure = "context";
+        else if (gRequestedSpell) failure = "busy";
+        else if (slot < 0 || slot >= ParryHotter::kSpellCount ||
+                 !ParryHotter::kSpellAvailable[slot] || gPreparedSlot != slot) failure = "prepared_slot";
+        if (failure) {
+            gLog.Line("cast slot=%d REFUSED reason=%s seq=%llu", slot, failure,
+                      static_cast<unsigned long long>(gInputSequence));
             return CastAttempt::Refused;
         }
-        if (!target || target->IsDead()) {
-            gLog.Line("cast slot=%d REFUSED no live target (%s)", slot,
-                      ParryHotter::AimTargetDescription(gAimTargetState));
+        auto* book = player->GetSpellBook();
+        auto* spell = book ? book->GetSelectedSpell() : nullptr;
+        // ReadySpell is asynchronous. Preserve a quick release, including its
+        // exact target and slot, until the selected native spell exists.
+        if (!spell || spell->GetSpellID() != kGothicSpellIds[slot]) return CastAttempt::NotReady;
+        if (!spell->GetEnabled() || spell->GetSpellStatus() == SPL_STATUS_STOP) {
+            if (gPreparePending) return CastAttempt::NotReady;
+            gLog.Line("cast slot=%d REFUSED reason=disabled seq=%llu", slot,
+                      static_cast<unsigned long long>(gInputSequence));
             return CastAttempt::Refused;
         }
-        oCMag_Book* spellbook = player->GetSpellBook();
-        if (!spellbook) {
-            SetAimTargetState(ParryHotter::AimTargetState::NoSpellBook);
-            gLog.Line("cast slot=%d REFUSED no spellbook", slot);
-            return CastAttempt::Refused;
-        }
-        auto* spell = spellbook->GetSelectedSpell();
-        // Native target angles are relative to Harry, not the free camera.
-        // Keep native LOS/type rules, but use the same range as the reticle.
-        ParryTargeting::Scope targeting(spell);
-        const int validTarget = spell ? spell->IsValidTarget(target) : -1;
-        if (!spell || spell->GetSpellID() != kGothicSpellIds[slot] ||
-            !spell->GetEnabled() || !validTarget) {
-            gLog.Line("cast slot=%d REFUSED spell=%d id=%d want=%d enabled=%d validTarget=%d target=%p",
-                      slot, spell ? 1 : 0, spell ? spell->GetSpellID() : -1,
-                      kGothicSpellIds[slot], spell ? spell->GetEnabled() : -1,
-                      validTarget, static_cast<void*>(target));
-            return CastAttempt::Refused;
-        }
-        const int status = spell->GetSpellStatus();
-        // DONTINVEST (prepare animation running) is fine: the native magic
-        // AI keeps the cast keys pressed until it can invest, then releases.
-        if (status == SPL_STATUS_STOP) {
-            gLog.Line("cast slot=%d REFUSED spellStatus=%d", slot, status);
-            return CastAttempt::Refused;
-        }
-        // Bind the game engine's target to the actual center-screen NPC.
-        // Gothic's own focus detection may otherwise select a neighbor.
-        player->SetFocusVob(static_cast<zCVob*>(target));
-        // Selecting a focus alone does not rebind an already prepared spell.
+        player->SetFocusVob(target);
         spell->spellTarget = target;
         spell->spellTargetNpc = target;
-        if (spell->effect) spell->effect->SetTarget(static_cast<zCVob*>(target));
+        if (spell->effect) spell->effect->SetTarget(target);
         gRequestedSpell = spell;
         gRequestedSlot = slot;
         gRequestedTarget = target;
-        spell->AddRef();
-        target->AddRef();
-        gRequestExpires = ParryHotter::CastLedger::Clock::now() +
-            std::chrono::seconds(4);
+        spell->AddRef(); target->AddRef();
+        gRequestStarted = ParryHotter::CastLedger::Clock::now();
+        gRequestExpires = gRequestStarted + std::chrono::seconds(4);
+        gRequestId = ++gLastRequestId;
+        gRequestSequence = sequence;
         gCastConfirmed = false;
         gChargeKeys = false;
-        // Gothic I casts with ACTION + UP held, released to fire (see
-        // DriveNativeMagic). The native magic AI then plays the shoot
-        // animation and calls oCSpell::Cast, whose hook confirms the cast.
-        gLog.Line("cast slot=%d REQUEST target=%p status=%d invested=%d", slot,
-                  static_cast<void*>(target), status, spell->manaInvested);
+        // IsValidTarget may require a caster/effect created by native setup.
+        // Validate geometry now; native eligibility is checked before Cast.
+        gLog.Line("cast request=%llu seq=%llu slot=%d REQUEST target=%p status=%d invested=%d npcMode=%d",
+                  static_cast<unsigned long long>(gRequestId),
+                  static_cast<unsigned long long>(sequence), slot,
+                  static_cast<void*>(target), spell->GetSpellStatus(), spell->manaInvested, player->fmode);
         return CastAttempt::Requested;
     }
 
     CastAttempt CastAtCenteredNpc(int slot) {
-        return CastAtNpc(slot, GetCenteredNpcTarget());
+        return CastAtNpc(slot, GetCenteredNpcTarget(), gInputSequence);
     }
 
 
+    void ApplySpellInput(const ParryHotter::Output& out, oCNpc* target,
+                         ParryHotter::SpellCooldown::TimePoint now) {
+        if (out.cast) {
+            if (gAiming && gManaPrepared && gCooldown.ReadyByTime(out.castSlot, now)) {
+                const auto attempt = CastAtNpc(out.castSlot, target, gInputSequence);
+                if (attempt == CastAttempt::Requested) gLowerAfterCast = true;
+                else if (attempt == CastAttempt::NotReady) {
+                    QueueCast(out.castSlot, target);
+                    gChargeKeys = true;
+                }
+            } else {
+                gLog.Line("cast slot=%d REFUSED reason=cooldown_or_unprepared seq=%llu", out.castSlot,
+                          static_cast<unsigned long long>(gInputSequence));
+            }
+        }
+        if (out.stopAim && !gLowerAfterCast && !gQueuedTarget && !gRequestedSpell) LowerWand();
+        if (out.startAim && !gQueuedTarget && !gRequestedSpell) {
+            gLowerAfterCast = false;
+            RaiseWand(out.aimSlot);
+        }
+    }
+
+    const char* ControlContext() {
+        if (ParryControls::ConsoleVisible()) return "console";
+        if (!ogame || !player || !zinput) return "no_game";
+        if (ogame->IsOnPause()) return "pause";
+        if (ogame->inLoadSaveGame || ogame->inLevelChange) return "loading";
+        if (player->openinventory) return "inventory";
+        if (player->IsDead()) return "dead";
+        return ParryControls::ContextAvailable() ? "gameplay" : "native_state";
+    }
+
     void GameTick() {
-        const bool gameplay =
-            ogame && screen && player && zinput &&
-            !ogame->inLoadSaveGame && !ogame->inLevelChange &&
-            !player->openinventory &&
-            !ogame->IsOnPause() && !player->IsDead() &&
-            oCInformationManager::GetInformationManager().HasFinished() &&
-            (!zCAICamera::current || !zCAICamera::current->inCutsceneMode);
+        const char* context = ControlContext();
+        static const char* previousContext = nullptr;
+        if (context != previousContext) {
+            gLog.Line("context reason=%s seq=%llu", context,
+                      static_cast<unsigned long long>(ParryControls::events.LastSequence()));
+            previousContext = context;
+        }
+        const bool gameplay = ogame && screen && player && zinput &&
+            !ogame->inLoadSaveGame && !ogame->inLevelChange && !player->openinventory &&
+            !ogame->IsOnPause() && !player->IsDead();
         if (!gameplay) {
-            // Opening inventory, changing levels or entering a cutscene
-            // cancels unfinished air tracking. Never animate a paused NPC.
-            if (gFlightRecovery.Active())
-                NoteImpact(ParryHotter::ImpactEvent::Interrupted);
+            if (gRequestedSpell)
+                gLog.Line("cast request=%llu slot=%d CANCEL reason=%s",
+                          static_cast<unsigned long long>(gRequestId), gRequestedSlot, context);
             if (gFlightRecovery.Active() || gCasts.Size(ParryHotter::CastLedger::Clock::now()))
                 ResetSelectedSpellForScript();
-            HideDiagnostics();
+            ParryControls::events.Capture(false, false, false);
+            ClearReleaseTargets();
+            if (gAiming || gRequestedSpell || gQueuedTarget) LowerWand();
             ParryControls::Disable();
             gCamera.Restore(zCAICamera::current);
-            if (gAiming || gRequestedSpell) LowerWand();
             gController.Step({});
             ShowTarget(false, gActiveSlot);
+            HideDiagnostics();
             return;
         }
-        if (zinput->KeyToggled(KEY_F10)) {
+        const bool allowed = ParryControls::ContextAvailable();
+        if (!ParryControls::ConsoleVisible() && zinput->KeyToggled(KEY_F10)) {
             gDiagnosticVisible = !gDiagnosticVisible;
             gDiagnosticDirty = true;
         }
-        const bool inputAllowed = ParryControls::ContextAvailable();
-        int hotkey = inputAllowed && ParryControls::OwnsInput()
-            ? ParryControls::ConsumeSlotPressed() : 0;
-        for (int i = 0; inputAllowed && !hotkey && i < ParryHotter::kSpellCount; ++i) {
-            if (zinput->KeyToggled(kHotkeys[i])) {
-                hotkey = i + 1;
-                break;
-            }
-        }
-        const bool right = zinput->GetMouseButtonPressedRight() != 0;
-        const bool left = zinput->GetMouseButtonPressedLeft() != 0;
-        oCNpc* targetNpc = inputAllowed ? GetCenteredNpcTarget() : nullptr;
-        const bool target = targetNpc != nullptr;
-        ParryHotter::Input input{inputAllowed, hotkey, right, left, target};
-        auto out = gController.Step(input);
-        {
-            // Log every change of the casting chain's observable state.
-            struct Snapshot {
-                int left, right, aiming, wand, mana, target, slot, body, castAni, request,
-                    moveOn, owns, jump;
-                bool operator!=(const Snapshot& o) const {
-                    return std::memcmp(this, &o, sizeof(*this)) != 0;
-                }
-            };
-            static Snapshot last{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
-            const Snapshot now{left, right, out.aiming, gAiming, gManaPrepared,
-                               target, out.selected, player->GetBodyState(),
-                               player->human_ai && player->human_ai->IsInCastAni() ? 1 : 0,
-                               gRequestedSpell ? 1 : 0,
-                               ParryControls::enabled ? 1 : 0,
-                               ParryControls::OwnsInput() ? 1 : 0,
-                               ParryControls::GetInput().jumpHeld ? 1 : 0};
-            if (now != last || out.cast || out.startAim || out.stopAim) {
-                gLog.Line("frame LMB=%d RMB=%d aim=%d wand=%d manaPrep=%d target=%d(%s) "
-                          "slot=%d body=%d castAni=%d request=%d start=%d stop=%d cast=%d mana=%d "
-                          "F11move=%d ownsMove=%d jump=%d inputHook=%u fallback=%u",
-                          now.left, now.right, now.aiming, now.wand, now.mana, now.target,
-                          ParryHotter::AimTargetDescription(gAimTargetState), now.slot,
-                          now.body, now.castAni, now.request, out.startAim, out.stopAim,
-                          out.cast, player->GetAttribute(NPC_ATR_MANA),
-                          now.moveOn, now.owns, now.jump,
-                          ParryControls::inputHookCalls, ParryControls::fallbackCaptures);
-                last = now;
-            }
-        }
-
-        // Falling unconscious, swimming or entering a scripted action cancels
-        // preparation. Already fired projectiles retain their hit records.
-        if (!inputAllowed && (gAiming || gRequestedSpell)) LowerWand();
-
+        if (!allowed) ParryControls::events.Capture(false, false, false);
         const auto now = ParryHotter::SpellCooldown::Clock::now();
-        UpdateFlight(now);
-        ReapCasts();
+        static const auto clockStart = now;
+        const auto nowMs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now - clockStart).count());
+        UpdateSpellPreparation();
+        if (!allowed && (gAiming || gRequestedSpell || gQueuedTarget)) {
+            gLog.Line("cast request=%llu slot=%d CANCEL reason=%s",
+                      static_cast<unsigned long long>(gRequestId), gRequestedSlot, context);
+            LowerWand();
+        }
+        oCNpc* target = allowed ? GetCenteredNpcTarget() : nullptr;
+        ParryHotter::InputEvent event;
+        while (ParryControls::events.Pop(event)) {
+            gInputSequence = event.sequence;
+            if (event.kind == ParryHotter::InputEventKind::Interrupted) {
+                gController.Step({});
+                ClearReleaseTargets();
+                if (gAiming || gRequestedSpell || gQueuedTarget) LowerWand();
+                gLog.Line("input seq=%llu kind=Interrupted slot=%d dropped=%llu",
+                          static_cast<unsigned long long>(event.sequence), event.slot,
+                          static_cast<unsigned long long>(ParryControls::events.Dropped()));
+                continue;
+            }
+            const bool release = event.kind == ParryHotter::InputEventKind::LeftReleased;
+            oCNpc* released = release ? TakeReleaseTarget(event.sequence) : nullptr;
+            const char* kind = release ? "LeftReleased" :
+                event.kind == ParryHotter::InputEventKind::LeftPressed ? "LeftPressed" :
+                event.kind == ParryHotter::InputEventKind::RightPressed ? "RightPressed" :
+                event.kind == ParryHotter::InputEventKind::RightReleased ? "RightReleased" : "SlotSelected";
+            gLog.Line("input seq=%llu kind=%s slot=%d target=%p",
+                      static_cast<unsigned long long>(event.sequence), kind, event.slot,
+                      static_cast<void*>(release ? released : target));
+            const auto output = gController.Step({allowed, event.slotPressed,
+                event.rightHeld, event.leftHeld, (release ? released : target) != nullptr});
+            ApplySpellInput(output, release ? released : target, now);
+            if (released) released->Release();
+        }
+        ParryControls::ConsumeSlotPressed();
+        const auto out = gController.Step({allowed, 0, ParryControls::events.RightHeld(),
+            ParryControls::events.LeftHeld(), target != nullptr});
+        ApplySpellInput(out, target, now);
+        if (gQueuedTarget) {
+            const char* failure = TargetFailure(gQueuedTarget);
+            if (!allowed || !gAiming || failure || now >= gQueuedExpires) {
+                gLog.Line("cast slot=%d QUEUE DROPPED reason=%s", gQueuedSlot,
+                          failure ? failure : (!allowed ? context : "ready_timeout"));
+                LowerWand();
+            } else {
+                const auto attempt = CastAtNpc(gQueuedSlot, gQueuedTarget, gQueuedSequence);
+                if (attempt == CastAttempt::Requested) { ClearQueuedCast(); gLowerAfterCast = true; }
+                else if (attempt == CastAttempt::Refused) LowerWand();
+            }
+        }
         if (gRequestedSpell && now >= gRequestExpires) {
-            gLog.Line("cast slot=%d TIMEOUT status=%d invested=%d", gRequestedSlot,
-                      gRequestedSpell->GetSpellStatus(), gRequestedSpell->manaInvested);
+            gLog.Line("cast request=%llu slot=%d TIMEOUT status=%d invested=%d magicCalls=%u",
+                      static_cast<unsigned long long>(gRequestId), gRequestedSlot,
+                      gRequestedSpell->GetSpellStatus(), gRequestedSpell->manaInvested, gPlayerMagicCalls);
             LowerWand();
         }
         if (gRequestedSpell && (gRequestedSpell->manaInvested < 0 ||
             gRequestedSpell->GetSpellStatus() == SPL_STATUS_STOP)) {
-            // Native Stop marks the spell CANINVEST with manaInvested=-1
-            // and removes its effect. Further key presses cannot revive it.
-            gLog.Line("cast slot=%d CANCELLED by engine status=%d invested=%d", gRequestedSlot,
+            gLog.Line("cast request=%llu slot=%d CANCEL reason=engine_stop status=%d invested=%d",
+                      static_cast<unsigned long long>(gRequestId), gRequestedSlot,
                       gRequestedSpell->GetSpellStatus(), gRequestedSpell->manaInvested);
             LowerWand();
         }
-        KeepHarryAppearance();
-        const int mana = player->GetAttribute(NPC_ATR_MANA);
-        ShowHud();
-        ShowSlotAvailability(mana, now);
-        ShowSelection(out.selected);
-        ShowTarget(out.targetSymbolVisible, out.selected, targetNpc);
-        DrawDiagnostics();
-        // HP2 keeps the standard camera framing while aiming (no zoom or
-        // shoulder shift). Gothic's CAMMODNORMAL (2.5 m) already matches
-        // HP2's distance, so the framing helper only restores old values.
-        gCamera.Restore(zCAICamera::current);
-
-        // HP2: the release of LMB both ends aiming and casts. Cast first,
-        // while the wand is still raised and the mana prepared; lower the
-        // wand only after the native cast resolved (confirmed or expired).
-        if (out.cast && gAiming && gManaPrepared &&
-            gCooldown.ReadyByTime(out.selected, now)) {
-            const auto attempt = CastAtNpc(out.selected, targetNpc);
-            if (attempt == CastAttempt::Requested) gLowerAfterCast = true;
-            else if (attempt == CastAttempt::NotReady) QueueCast(out.selected, targetNpc);
-        }
-        // A new press while a cast is still flying out must not cancel it.
-        if (out.startAim && !gQueuedTarget && !gRequestedSpell) gLowerAfterCast = false;
-        if (out.stopAim && !gLowerAfterCast && !gQueuedTarget && !gRequestedSpell) {
-            LowerWand();
-        }
-        if (gQueuedTarget) {
-            // Keep investing until the native spell becomes castable, then
-            // cast at the target captured on release. Give up cleanly when
-            // the context, target, slot or time window is gone.
-            auto* book = player->GetSpellBook();
-            if (!inputAllowed || !gAiming || out.selected != gQueuedSlot ||
-                gQueuedTarget->IsDead() ||
-                ParryHotter::CastLedger::Clock::now() >= gQueuedExpires) {
-                gLog.Line("cast slot=%d QUEUE DROPPED input=%d wand=%d dead=%d",
-                          gQueuedSlot, inputAllowed ? 1 : 0, gAiming ? 1 : 0,
-                          gQueuedTarget->IsDead() ? 1 : 0);
-                ClearQueuedCast();
-                if (!out.aiming) LowerWand();
-            } else {
-                if (book && !gRequestedSpell) { OwnMagicCall own; book->Spell_Invest(); }
-                {
-                    auto* sel = book ? book->GetSelectedSpell() : nullptr;
-                    static int lastStatus = -2;
-                    const int st = sel ? sel->GetSpellStatus() : -1;
-                    if (st != lastStatus) {
-                        gLog.Line("queue spellStatus=%d castAni=%d", st,
-                                  player->human_ai && player->human_ai->IsInCastAni() ? 1 : 0);
-                        lastStatus = st;
-                    }
-                }
-                auto* queued = gQueuedTarget;
-                const int slot = gQueuedSlot;
-                const auto attempt = CastAtNpc(slot, queued);
-                if (attempt == CastAttempt::Requested) {
-                    ClearQueuedCast();
-                    gLowerAfterCast = true;
-                } else if (attempt == CastAttempt::Refused) {
-                    ClearQueuedCast();
-                    if (!out.aiming) LowerWand();
-                }
-            }
-        }
-        if (gLowerAfterCast && !gRequestedSpell &&
-            !(player->human_ai && player->human_ai->IsInCastAni())) {
-            gLowerAfterCast = false;
-            if (!out.aiming) LowerWand();
-        }
-        // A queued tap keeps its raised wand and target; pressing LMB again
-        // must not re-ready the spell (that would discard the investment).
-        if ((out.startAim || (hotkey && out.aiming)) && !gQueuedTarget && !gRequestedSpell) {
-            RaiseWand(out.selected);
-        }
-        if (out.aiming && gAiming) {
-            if (player->human_ai)
-                ParryCasting::Bind(player->human_ai, player->GetModel());
-            AttachWand(); // Model may have changed with a clothing swap.
-        }
-        if (out.aiming && !gManaPrepared && !gRequestedSpell &&
-            gCooldown.Ready(out.selected, mana, now)) {
-            // Holding LMB can re-arm after the previous cooldown expires.
-            RaiseWand(out.selected);
-        }
-        // HP2: missing costs nothing. An invest spell starts charging (the
-        // native AI invests mana while ACTION+UP are held) only once the dot
-        // is on a valid target; then it keeps charging until LMB is released.
-        // Releasing on a target casts (CastAtNpc), elsewhere it cancels.
         if (out.aiming && gAiming && gManaPrepared && !gRequestedSpell && target &&
-            !kInstantSpell[out.selected] && gCooldown.ReadyByTime(out.selected, now)) {
-            if (!gChargeKeys) gLog.Line("charge slot=%d start", out.selected);
+            gPreparedSlot == out.aimSlot && !kInstantSpell[gPreparedSlot] &&
+            gCooldown.ReadyByTime(gPreparedSlot, now)) {
+            if (!gChargeKeys) gLog.Line("charge slot=%d start seq=%llu", gPreparedSlot,
+                                     static_cast<unsigned long long>(gInputSequence));
             gChargeKeys = true;
         }
-        if (!gAiming) gChargeKeys = false;
-        if (gRequestedSpell) {
-            static int lastStatus = -2, lastInvested = -1;
-            static std::uint64_t lastGeneration = ~std::uint64_t(0);
-            const int status = gRequestedSpell->GetSpellStatus();
-            if (lastGeneration != gRequestGeneration || status != lastStatus ||
-                (gRequestedSpell->manaInvested > 0) != (lastInvested > 0)) {
-                gLog.Line("cast slot=%d native status=%d invested=%d keys=%d castAni=%d",
-                          gRequestedSlot, status, gRequestedSpell->manaInvested,
-                          gNativeKeysDown ? 1 : 0,
-                          player->human_ai && player->human_ai->IsInCastAni() ? 1 : 0);
-                lastStatus = status;
-                lastInvested = gRequestedSpell->manaInvested;
-                lastGeneration = gRequestGeneration;
-            }
+        if (gLowerAfterCast && !gRequestedSpell &&
+            !(player->human_ai && player->human_ai->IsInCastAni())) LowerWand();
+        UpdateFlight(now);
+        ReapCasts();
+        KeepHarryAppearance();
+        ShowHud();
+        ShowSlotAvailability(player->GetAttribute(NPC_ATR_MANA), now);
+        ShowSelection(out.selected);
+        ShowTarget(out.targetSymbolVisible, out.selected, target);
+        DrawDiagnostics();
+        gCamera.Restore(zCAICamera::current);
+        ParryHotter::ControlsSnapshot snapshot;
+        snapshot.inputSequence = gInputSequence;
+        snapshot.requestId = gRequestedSpell ? gRequestId : 0;
+        snapshot.slot = out.selected;
+        snapshot.leftHeld = ParryControls::events.LeftHeld();
+        snapshot.rightHeld = ParryControls::events.RightHeld();
+        snapshot.npcMode = player->fmode;
+        snapshot.body = player->GetBodyState();
+        snapshot.desiredX = ParryControls::pendingMove.velocityX;
+        snapshot.desiredZ = ParryControls::pendingMove.velocityZ;
+        snapshot.actualX = ParryControls::movementFeedback.velocityX;
+        snapshot.actualZ = ParryControls::movementFeedback.velocityZ;
+        snapshot.verticalVelocity = player->GetVelocity()[1];
+        snapshot.cameraDistance = ParryCamera::last.distance;
+        snapshot.cameraPivotHeight = ParryCamera::last.pivotAboveHead;
+        if (gControlsLog.ShouldLog(nowMs, snapshot)) {
+            auto* ai = player->human_ai;
+            gLog.Line("controls seq=%llu request=%llu slot=%d context=%s LMB=%d RMB=%d "
+                      "npcMode=%d aiMode=%d body=%d castAni=%d invested=%d mana=%d floor=%.1f "
+                      "desiredX=%.1f desiredZ=%.1f actualX=%.1f actualZ=%.1f vy=%.1f "
+                      "movementBlocked=%d cameraActive=%d cameraDist=%.1f cameraWant=%.1f "
+                      "pivotHeight=%.1f cameraBlocked=%d roofLimited=%d cameraHits=%d cameraTraces=%d "
+                      "gaitSupported=%d gaitApplied=%d dropped=%llu",
+                      static_cast<unsigned long long>(gInputSequence),
+                      static_cast<unsigned long long>(snapshot.requestId), out.selected, context,
+                      snapshot.leftHeld ? 1 : 0, snapshot.rightHeld ? 1 : 0, snapshot.npcMode,
+                      ai ? ai->wmode : -1, snapshot.body, ai ? ai->IsInCastAni() : 0,
+                      gRequestedSpell ? gRequestedSpell->manaInvested : 0,
+                      player->GetAttribute(NPC_ATR_MANA), ai ? ai->aboveFloor : 0.0f,
+                      snapshot.desiredX, snapshot.desiredZ, snapshot.actualX, snapshot.actualZ,
+                      snapshot.verticalVelocity, ParryControls::movementFeedback.blocked ? 1 : 0,
+                      ParryCamera::last.active ? 1 : 0, snapshot.cameraDistance,
+                      ParryCamera::last.desiredDistance, snapshot.cameraPivotHeight,
+                      ParryCamera::last.collisionLimited ? 1 : 0, ParryCamera::last.ceilingLimited ? 1 : 0,
+                      ParryCamera::last.sampleHits, ParryCamera::last.traceCount,
+                      ParryMovingCasting::Supported() ? 1 : 0, ParryMovingCasting::Applied() ? 1 : 0,
+                      static_cast<unsigned long long>(ParryControls::events.Dropped()));
         }
     }
+
 } // anonymous namespace
 
 // Standard Union DLL exports, called by engine event hooks in template.
@@ -1685,7 +1865,10 @@ cexport const char* ParryHotter_BuildId() {
 }
 cexport void Game_Entry() {}
 cexport void Game_Init() {
-    gLog.Line("build PH_CAST_INPUT_NATIVE_READY_V2");
+    ParryCamera::Reset();
+    gLog.Line("build PH_CONTROLS_V3_EVENTS_READY");
+    ParryControls::captureReleaseTarget = CaptureReleaseTarget;
+    gControlsLog.Reset();
     gLog.Line("hooks MagicMode=%p Invest=%p Cast=%p SpellStatus=%p",
               Gothic_I_Classic::Ivk_PH_MagicMode.GetSourceAddress(),
               Gothic_I_Classic::Ivk_PH_Invest.GetSourceAddress(),
@@ -1697,9 +1880,12 @@ cexport void Game_Init() {
     gDiagnosticDirty = true;
     SetUnionPresence(true);
     gController.ResetAfterInterruption();
+    ParryControls::events.Reset(gController.Selected(), true);
     gCooldown.Reset();
+    RefreshManaCosts();
 }
 cexport void Game_Exit() {
+    ParryCamera::Reset();
     ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     ResetSelectedSpellForScript();
@@ -1712,11 +1898,13 @@ cexport void Game_PreLoop() {}
 cexport void Game_Loop() { GameTick(); }
 cexport void Game_PostLoop() {}
 cexport void Game_MenuLoop() {
+    ParryCamera::Reset();
     // Menus (options/controls included) must always see the player's own
     // key bindings, even if no gameplay input capture runs any more.
     ParryControls::ReleaseNativeBindings();
 }
 cexport void Game_SaveBegin() {
+    ParryCamera::Reset();
     ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // Exit casting mode before the game records its save. Both mouse
@@ -1734,56 +1922,69 @@ cexport void Game_SaveEnd() {
     SetUnionPresence(true);
 }
 cexport void Game_LoadBegin_NewGame() {
+    ParryCamera::Reset();
     ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
-    ResetSelectedSpellForScript();
     if (gAiming) LowerWand();
+    ResetSelectedSpellForScript();
     gCamera.Forget();
     RemoveHud();
 }
 cexport void Game_LoadEnd_NewGame() {
+    ParryCamera::Reset();
     ParryControls::Forget();
     ResetSelectedSpellForScript();
     SetUnionPresence(true);
     gController.ResetAfterInterruption();
+    ParryControls::events.Reset(gController.Selected(), true);
     gCooldown.Reset();
+    RefreshManaCosts();
 }
 cexport void Game_LoadBegin_SaveGame() {
+    ParryCamera::Reset();
     ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
-    ResetSelectedSpellForScript();
     if (gAiming) LowerWand();
+    ResetSelectedSpellForScript();
     gCamera.Forget();
     RemoveHud();
 }
 cexport void Game_LoadEnd_SaveGame() {
+    ParryCamera::Reset();
     ParryControls::Forget();
     ResetSelectedSpellForScript();
     SetUnionPresence(true);
     gController.ResetAfterInterruption();
+    ParryControls::events.Reset(gController.Selected(), true);
     gCooldown.Reset();
+    RefreshManaCosts();
 }
 cexport void Game_LoadBegin_ChangeLevel() {
+    ParryCamera::Reset();
     ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // Drop any AddRef'd target BEFORE ZenGin frees the previous world.
-    ResetSelectedSpellForScript();
     if (gAiming) LowerWand();
+    ResetSelectedSpellForScript();
     gCamera.Forget();
     RemoveHud();
 }
 cexport void Game_LoadEnd_ChangeLevel() {
+    ParryCamera::Reset();
     ParryControls::Forget();
     ResetSelectedSpellForScript();
     SetUnionPresence(true);
     gController.ResetAfterInterruption();
+    ParryControls::events.Reset(gController.Selected(), true);
     gCooldown.Reset();
+    RefreshManaCosts();
 }
-cexport void Game_LoadBegin_Trigger() {}
-cexport void Game_LoadEnd_Trigger() {}
+cexport void Game_LoadBegin_Trigger() { ParryCamera::Reset(); }
+cexport void Game_LoadEnd_Trigger() { ParryCamera::Reset(); }
 cexport void Game_Pause() {
+    ParryCamera::Reset();
     ParryControls::ReleaseNativeBindings();
     ParryControls::Disable();
     // The game loop may stop during pause and never call GameTick's
@@ -1797,6 +1998,7 @@ cexport void Game_Pause() {
 cexport void Game_Unpause() {}
 cexport void Game_DefineExternals() {}
 cexport void Game_ApplyOptions() {
+    ParryCamera::Reset();
     if (gAiming) LowerWand();
     RemoveHud(); // Recalculate pixel-square HUD geometry after a resize.
 }

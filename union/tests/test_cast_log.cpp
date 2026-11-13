@@ -27,6 +27,9 @@ int main() {
         assert(text.find("stale") == std::string::npos); // new session truncates
         assert(text.find("lmb down slot=1") != std::string::npos);
         assert(text.find("cast result=0") != std::string::npos);
+        const std::string snapshot(650, 'x');
+        log.Line("controls %s dropped=7", snapshot.c_str());
+        assert(ReadAll(path).find("dropped=7") != std::string::npos);
     }
     {
         ParryHotter::CastLog log(path);
