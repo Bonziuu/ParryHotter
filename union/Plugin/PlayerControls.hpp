@@ -83,6 +83,8 @@ inline zCModel* scaledModel = nullptr;
 inline float savedScaleX = 1.0f;
 inline float savedScaleZ = 1.0f;
 inline ParryHotter::LocomotionOutput pendingMove;
+inline float lastDesiredX = 0.0f;
+inline float lastDesiredZ = 0.0f;
 inline float movementDelta = 0.0f;
 inline Hp2Motion motion;
 inline ParryHotter::PlanarFeedback movementFeedback;
@@ -168,7 +170,16 @@ inline bool maskNativeRight = false;
 // supplies ACTION+UP without feeding those keys to native locomotion.
 inline bool nativePlayerInput = false;
 inline bool nativeMagicInput = false;
-inline bool nativeCastKeys = false;
+inline bool nativeCastKeys = false; // GAME_UP: invest while held
+inline bool nativeCastAction = false; // GAME_ACTION: remains down for release/rearm
+inline bool nativeMagicRearm = false;
+
+// G1 clears spellCastedLastFrame only with ACTION held and UP released
+// (MagicMode 0x46D3A1), not when both keys are released. Keep them distinct.
+inline void SetNativeMagicKeys(bool action, bool up) {
+    nativeCastAction = action;
+    nativeCastKeys = up;
+}
 
 struct NativePlayerInputScope {
     bool previous;
@@ -190,9 +201,35 @@ struct NativeMagicInputScope {
     NativeMagicInputScope& operator=(const NativeMagicInputScope&) = delete;
 };
 
+// A newly prepared spell may need one native ACTION-only step to clear
+// the previous cast latch, even when its own charge is already requested.
+struct NativeMagicRearmScope {
+    bool previous;
+    explicit NativeMagicRearmScope(bool active) : previous(nativeMagicRearm) {
+        nativeMagicRearm = active;
+    }
+    ~NativeMagicRearmScope() { nativeMagicRearm = previous; }
+    NativeMagicRearmScope(const NativeMagicRearmScope&) = delete;
+    NativeMagicRearmScope& operator=(const NativeMagicRearmScope&) = delete;
+};
+
+// Physical capture reads these keys before player AI. The native player AI
+// must not also select a Gothic weapon/spell while our queued cast owns them.
+// A nested NPC, a UI or a physical polling scope keeps its original keys.
+inline bool BlocksNativeSpellHotkey(int key) {
+    if (!nativePlayerInput) return false;
+    constexpr int spellKeys[] = {KEY_1, KEY_2, KEY_3, KEY_4, KEY_5,
+                                 KEY_6, KEY_7, KEY_8, KEY_9, KEY_0};
+    for (const int spellKey : spellKeys) if (key == spellKey) return true;
+    return false;
+}
+
 inline bool OverrideNativeState(unsigned short action, float& value) {
     if (nativeMagicInput && (action == GAME_ACTION || action == GAME_UP)) {
-        value = nativeCastKeys ? 1.0f : 0.0f;
+        const bool down = action == GAME_ACTION
+            ? (nativeMagicRearm || nativeCastAction)
+            : (nativeCastKeys && !nativeMagicRearm);
+        value = down ? 1.0f : 0.0f;
         return true;
     }
     if (!nativePlayerInput) return false;
@@ -280,6 +317,7 @@ inline void Disable() {
     locomotion.Step({});
     input = {};
     planarX = planarZ = 0.0f;
+    lastDesiredX = lastDesiredZ = 0.0f;
     movementFeedback = {};
     resumedNativeFall = false;
     hasSafePosition = false;
@@ -303,6 +341,7 @@ inline void Forget() {
     locomotion.Step({});
     input = {};
     planarX = planarZ = 0.0f;
+    lastDesiredX = lastDesiredZ = 0.0f;
     movementFeedback = {};
     resumedNativeFall = false;
     hasSafePosition = false;
@@ -555,6 +594,8 @@ inline void AfterHumanAI(oCAIHuman* ai) {
     if (ai && ai->npc == player) motion.After(ai, player);
     if (!ai || movingAI != ai) return;
     const auto move = pendingMove;
+    lastDesiredX = move.velocityX;
+    lastDesiredZ = move.velocityZ;
     RestoreRootMotion();
     if (!OwnsInput() || !move.active || ai->npc != player) return;
     if (move.hasFacing) {

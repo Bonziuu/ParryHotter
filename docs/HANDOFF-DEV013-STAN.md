@@ -254,3 +254,43 @@ Nie zmieniano zasobów ani kopii bezpieczeństwa w instalacji Windows użytkowni
 
 Pełne efekty HP2 i ragdoll nadal pozostają osobnym zadaniem. Ten zestaw zmian
 nie potwierdza ich ukończenia ani zgodności sterowania 1:1 bez testu w Gothic.
+
+## Log V3 i poprawka V4: ponawianie czarów oraz różdżka
+
+Nowy log użytkownika zawiera 9 REQUEST, 1 potwierdzony Cast (Flipendo),
+4 timeouty i 4 anulowania. Jedyny Cast wystąpił przy 28,695 s, 339,6 ms po
+puszczeniu LPM. Wszystkie `native Invest` są przed tym Cast; później silnik
+wchodzi do MagicMode z ACTION=1/UP=1, lecz nie inwestuje ani razu.
+
+Przyczyna potwierdzona w GothicMod.exe 1.08k:
+
+- `MagicCheckSpellStates @ 0x0046CBDD` ustawia bit 8 `spellCastedLastFrame`
+  w polu AI +0x1204 po rzucie.
+- `MagicMode @ 0x0046D363` omija kolejne MagicInvestSpell, gdy bit jest ustawiony.
+- Wyzerowanie bitu jest na ścieżce ACTION=1, UP=0
+  (`0x0046D3A1`, AND 0xFFFFFEBF). Zwolnienie obu przycisków nie dochodzi do niej.
+
+V4 rozdziela oba klawisze. Po puszczeniu LPM ACTION pozostaje aktywne w zakresie
+MagicMode, a UP jest zwolnione. Jeśli następne przygotowanie zastanie bit 8,
+pierwsze wywołanie MagicMode dostaje natywną sekwencję ponownego uzbrojenia.
+Intencja ładowania pozostaje zachowana na następne wywołanie. Nie modyfikujemy
+bitu pamięci silnika ręcznie. Log zawiera `lastCast` i `rearm`.
+
+Druga przyczyna widocznego opóźnienia: ReadySpell zawsze kolejkuje DRAWWEAPON,
+a UnreadySpell REMOVEWEAPON. `NativeWand.hpp` wybiera/zarejestrowuje rzeczywistą
+runę i używa `SetWeaponMode2 @ 0x00695A60` do natychmiastowego trybu magii,
+bez wiadomości wyciągania/chowania broni. Ta metoda sama aktualizuje natywne
+overlays, animacje walki i chodu. `Spell_Setup @ 0x0046F800`, opakowane w Scope
+celowania, ustawia caster/cel/efekt przed pierwszym AI. Zakończenie używa
+StopSelectedSpell i natychmiastowego przywrócenia trybu zamiast UnreadySpell.
+
+Istotne szczegóły SDK: `GetSpell(int)` przyjmuje indeks, nie ID; iteracja
+kończy się przed GetNoOfSpells. StopSelectedSpell wymienia natywny obiekt czaru
+w tym samym indeksie, więc wszystkie wskaźniki muszą być pobrane ponownie.
+Wmode AI (1/2/3) opisuje wybór animacji broni; nie jest odpowiednikiem fmode=7.
+
+Znacznik nowej diagnostyki: `PH_CAST_V4_INSTANT_WAND_REARM`. Kolejna próba musi
+obejmować przynajmniej trzy kolejne rzuty tym samym czarem i powtórzenie dla
+wszystkich sześciu slotów. Kompilacja i regresje nie dowodzą jeszcze działania
+V4 w grze użytkownika. Paczka aktualizatora zawiera teraz również analizator
+logów i instrukcję prób.

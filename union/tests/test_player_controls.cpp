@@ -155,6 +155,8 @@ int main(){
  for(int i=0;i<60;++i){ParryControls::BeforeHumanAI(&ai);assert(pc.mdl.aniTransScale[0]==0);ParryControls::AfterHumanAI(&ai);assert(pc.mdl.aniTransScale[0]==1);}
  assert(ai.velocity[0]==100 && ai.velocity[1]==200 && ai.velocity[2]==300); // No external native velocity is erased.
  assert(pc.position[0]>200&&pc.position[2]>200);assert(pc.position[1]==0);assert(pc.biggestStep<=10.001f);assert(pc.begin==pc.end);
+ // The next GameTick must still see the command after root-motion cleanup.
+ assert(ParryControls::lastDesiredX>200 && ParryControls::lastDesiredZ>200);
  const int runCallsBeforeJump=ai.runCalls;
  controls.keys[KEY_SPACE]=1;ParryControls::CaptureInput(&controls);ParryControls::BeforeHumanAI(&ai);ParryControls::AfterHumanAI(&ai);assert(ai.jumps==1);
  assert(ai.runCalls==runCallsBeforeJump); // A native jump must not be followed by a run command.
@@ -230,7 +232,7 @@ int main(){
   controls.SetState(GAME_UP,0);
   assert(controls.NativeState(GAME_UP)==1.0f); // regression: old clearing fails
   assert(controls.GetState(GAME_UP)==1.0f); // no global input changes
-  ParryControls::nativeCastKeys=false;
+  ParryControls::SetNativeMagicKeys(false,false);
   ParryControls::Reset();
   {
    ParryControls::NativePlayerInputScope playerInput(true);
@@ -245,7 +247,7 @@ int main(){
    }
    {
     ParryControls::NativeMagicInputScope magicInput(true);
-    ParryControls::nativeCastKeys=true;
+    ParryControls::SetNativeMagicKeys(true,true);
     for(int poll=0;poll<20;++poll){
      ParryControls::CaptureInput(&controls);
      assert(controls.GetState(GAME_ACTION)==1.0f);
@@ -255,7 +257,7 @@ int main(){
     controls.keys[KEY_W]=0;
     assert(controls.GetState(GAME_UP)==1.0f); // hold is independent of physical W
     controls.keys[KEY_W]=1;
-    ParryControls::nativeCastKeys=false;
+    ParryControls::SetNativeMagicKeys(false,false);
     assert(controls.GetState(GAME_UP)==0.0f);
     assert(controls.GetState(GAME_ACTION)==0.0f); // release wins over physical Ctrl
     {
@@ -281,16 +283,16 @@ int main(){
    assert(controls.GetState(GAME_UP)==1.0f);
    {
     ParryControls::NativeMagicInputScope magicInput(true);
-    ParryControls::nativeCastKeys=false;
+    ParryControls::SetNativeMagicKeys(false,false);
     assert(controls.GetState(GAME_UP)==0.0f);
     assert(controls.GetState(GAME_ACTION)==0.0f);
-    ParryControls::nativeCastKeys=true;
+    ParryControls::SetNativeMagicKeys(true,true);
     assert(controls.GetState(GAME_UP)==1.0f);
     assert(controls.GetState(GAME_ACTION)==1.0f);
    }
    assert(controls.GetState(GAME_ACTION)==1.0f);
   }
-  ParryControls::nativeCastKeys=false;
+  ParryControls::SetNativeMagicKeys(false,false);
   controls.keys[KEY_W]=controls.keys[KEY_LCONTROL]=0;
   assert(controls.GetState(GAME_UP)==0.0f);
   controls.bindings=originalBindings;
@@ -332,7 +334,7 @@ int main(){
   assert(spell.Status()==SPL_STATUS_CANINVEST);
   {
    ParryControls::NativeMagicInputScope magicInput(true);
-   ParryControls::nativeCastKeys=true;
+   ParryControls::SetNativeMagicKeys(true,true);
    spell.MagicModeFrame(); // investment completes before the next status read
    assert(spell.rawStatus==SPL_STATUS_CAST && spell.Status()==SPL_STATUS_CANINVEST);
    assert(spell.investedMana==3 && spell.nativeInvestCalls==1);
@@ -342,7 +344,7 @@ int main(){
    assert(spell.nativeInvestCalls==1 && spell.queuedShoots==0 && spell.casts==0);
    // Losing the reticle target cannot manufacture a release request. Even
    // if logical keys are lowered, the full spell must not shoot by itself.
-   ParryControls::nativeCastKeys=false;
+   ParryControls::SetNativeMagicKeys(false,false);
    for(int lostTargetFrame=0;lostTargetFrame<20;++lostTargetFrame) spell.MagicModeFrame();
    assert(spell.rawStatus==SPL_STATUS_CAST && spell.investedMana==3);
    assert(spell.nativeInvestCalls==1 && spell.queuedShoots==0 && spell.casts==0);
@@ -369,7 +371,7 @@ int main(){
    assert(spell.nativeInvestCalls==1);
   }
   assert(spell.Status()==SPL_STATUS_CAST); // status hook left native MagicMode
-  ParryControls::nativeCastKeys=false;
+  ParryControls::SetNativeMagicKeys(false,false);
  }
  // With F11 movement restored, a cast still needs temporary movement-key
  // ownership for the whole player AI step, not just inside MagicMode.
@@ -387,9 +389,9 @@ int main(){
    assert(controls.GetState(GAME_UP)==0.0f);
    {
     ParryControls::NativeMagicInputScope magicInput(true);
-    ParryControls::nativeCastKeys=true;
+    ParryControls::SetNativeMagicKeys(true,true);
     assert(controls.GetState(GAME_UP)==1.0f);
-    ParryControls::nativeCastKeys=false;
+    ParryControls::SetNativeMagicKeys(false,false);
     assert(controls.GetState(GAME_UP)==0.0f);
    }
    assert(controls.GetState(GAME_UP)==0.0f); // no native walk after MagicMode
@@ -398,6 +400,78 @@ int main(){
   assert(controls.GetState(GAME_UP)==1.0f); // normal F11 movement resumes
   controls.keys.clear();
   ParryControls::Reset();
+ }
+ // Only owned native player AI masks the ten spell hotkeys. UI/native
+ // movement, physical polling and a nested NPC never inherit that filter.
+ {
+  constexpr int spellKeys[]={KEY_1,KEY_2,KEY_3,KEY_4,KEY_5,
+                            KEY_6,KEY_7,KEY_8,KEY_9,KEY_0};
+  for(const int key:spellKeys) assert(!ParryControls::BlocksNativeSpellHotkey(key));
+  {
+   ParryControls::NativePlayerInputScope drivingPlayerInput(true);
+   for(const int key:spellKeys) assert(ParryControls::BlocksNativeSpellHotkey(key));
+   for(const int key:{KEY_W,KEY_SPACE,KEY_F11,MOUSE_BUTTONLEFT})
+    assert(!ParryControls::BlocksNativeSpellHotkey(key));
+   {
+    ParryControls::NativePlayerInputScope physicalPoll(false);
+    for(const int key:spellKeys) assert(!ParryControls::BlocksNativeSpellHotkey(key));
+   }
+   {
+    ParryControls::NativePlayerInputScope nestedNpc(false);
+    assert(!ParryControls::BlocksNativeSpellHotkey(KEY_1));
+   }
+   assert(ParryControls::BlocksNativeSpellHotkey(KEY_0));
+  }
+  // F11 alone/native movement has no owned player input scope.
+  assert(!ParryControls::BlocksNativeSpellHotkey(KEY_0));
+ }
+ // G1 MagicMode's cast latch survives both keys up. A subsequent charge
+ // must observe ACTION down + UP up first, even if physical LMB is released.
+ // Native addresses: set bit 0x100 at 0x46CBDD, gate at 0x46D363,
+ // clear it on ACTION-without-UP at 0x46D3A1. Simulate those engine facts.
+ {
+  struct NativeCastLatch {
+   bool castedLastFrame=false;
+   int investments=0;
+   void Step(bool action,bool up){
+    if(!action) return;
+    if(!up) { castedLastFrame=false; return; }
+    if(!castedLastFrame) ++investments;
+   }
+  } native;
+  ParryControls::NativePlayerInputScope playerInput(true);
+  ParryControls::NativeMagicInputScope magicInput(true);
+  const auto tick=[&]{native.Step(controls.GetState(GAME_ACTION)!=0,
+                                  controls.GetState(GAME_UP)!=0);};
+  ParryControls::SetNativeMagicKeys(true,true);tick();
+  assert(native.investments==1);
+  native.castedLastFrame=true; // Native Cast finished.
+  ParryControls::SetNativeMagicKeys(false,false);tick();
+  assert(native.castedLastFrame); // Regression: old coupled release never rearms.
+  ParryControls::SetNativeMagicKeys(true,true);tick();
+  assert(native.investments==1); // Second spell is blocked by that stale latch.
+  ParryControls::SetNativeMagicKeys(true,false);
+  assert(controls.GetState(GAME_ACTION)==1.0f && controls.GetState(GAME_UP)==0.0f);
+  tick();assert(!native.castedLastFrame);
+  ParryControls::SetNativeMagicKeys(true,true);tick();
+  assert(native.investments==2); // Fresh charge can invest after the release profile.
+  // Pending quick tap requests charge immediately on the next spell, but
+  // a scoped native rearm overrides that one step without losing intent.
+  native.castedLastFrame=true;
+  ParryControls::SetNativeMagicKeys(true,true);
+  {
+   ParryControls::NativeMagicRearmScope rearm(true);
+   assert(controls.GetState(GAME_ACTION)==1.0f && controls.GetState(GAME_UP)==0.0f);
+   tick();assert(!native.castedLastFrame && native.investments==2);
+   {
+    ParryControls::NativeMagicRearmScope other(false);
+    assert(controls.GetState(GAME_UP)==1.0f);
+   }
+   assert(controls.GetState(GAME_UP)==0.0f);
+  }
+  assert(!ParryControls::nativeMagicRearm);
+  tick();assert(native.investments==3); // The held intent resumes after rearm.
+  ParryControls::SetNativeMagicKeys(false,false);
  }
  // Prepare/shoot animations can overlap a native walking flag. Neither
  // an idle command nor another ground animation may replace them.

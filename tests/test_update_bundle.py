@@ -15,6 +15,8 @@ class UpdateBundleTests(unittest.TestCase):
     FILES = (
         "AKTUALIZUJ_PARRY_HOTTER.bat",
         "docs/AKTUALIZACJA-DLL.md",
+        "docs/TESTY-STEROWANIA-HP2.md",
+        "tools/analyze_controls_log.py",
         "tools/__init__.py",
         "tools/update_hud.py",
         "tools/download_hud.py",

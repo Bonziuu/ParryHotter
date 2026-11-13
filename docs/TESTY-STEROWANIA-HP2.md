@@ -6,7 +6,7 @@ potwierdzają samodzielnie, że natywna DLL poprawnie wykonuje akcje w grze.
 
 W tej iteracji przygotowano kolejkę naciśnięć/puszczeń, rozdzielenie wyboru
 slotu od przygotowanego czaru oraz nowe moduły kamery, skoku i diagnostyki.
-Zintegrowana DLL zapisuje znacznik `PH_CONTROLS_V3_EVENTS_READY` oraz
+Zintegrowana DLL zapisuje znacznik `PH_CAST_V4_INSTANT_WAND_REARM` oraz
 odpowiednie wpisy logu. Brak pola pomiarowego oznacza **brak pomiaru**,
 a nie pozytywny wynik testu.
 
@@ -32,6 +32,14 @@ Modele, tekstury i pozostałe oryginalne zasoby pozostają lokalne. Nie dodawaj
 ich ani lokalnie zbudowanego `.mod` do repozytorium lub paczki narzędzi.
 
 ## Zaklęcia i wejście myszy
+
+Najpierw wybierz Flipendo i rzuć **trzy razy pod rząd bez zmiany slotu**.
+Przy każdym LPM różdżka ma przechodzić do celowania bez wyciągania broni.
+Puszczenie na celu powinno rozpocząć rzut; schowanie nie może go zastąpić.
+Log powinien pokazać trzy REQUEST i trzy udane `engine Cast`; pomiędzy nimi
+`lastCast=1` ma zostać wyczyszczone przez sekwencję `rearm=1`, ACTION=1/UP=0.
+Powtórz dla pozostałych pięciu czarów.
+
 
 | Próba | Wykonanie | Wynik do potwierdzenia w grze |
 | --- | --- | --- |
