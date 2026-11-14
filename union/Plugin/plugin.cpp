@@ -47,6 +47,8 @@
 #include "NativeWand.hpp"
 #include "Hp2Camera.hpp"
 #include "MovingCasting.hpp"
+#include "VisualReference.hpp"
+#include "AlphaPolyGuard.hpp"
 using namespace Gothic_I_Classic;
 
 // Custom damage hook has access to the real victim, attacker and spell ID.
@@ -81,9 +83,26 @@ namespace {
     void ObserveNativeRelease();
     void LogPlayerMagicAI(oCAIHuman* ai, bool after, bool driving);
     unsigned gPlayerMagicCalls = 0;
+    bool AdmitAlphaPoly(zCRnd_D3D*, zCPolygon*, zCMaterial*);
+    void AfterAlphaSort(zCRnd_D3D*);
 }
 
 namespace Gothic_I_Classic {
+    auto& Ivk_PH_AlphaBlendPoly = UnionCore::CreateHook(
+        PH_VIRTUAL(0x00716320) /* zCRnd_D3D::XD3D_AlphaBlendPoly */,
+        &zCRnd_D3D::PH_AlphaBlendPoly, UnionCore::Hook_Auto);
+    void zCRnd_D3D::PH_AlphaBlendPoly(zCPolygon* poly, zCMaterial* material) {
+        if (!AdmitAlphaPoly(this, poly, material)) return;
+        THISCALL(Ivk_PH_AlphaBlendPoly)(poly, material);
+        ParryAlphaGuard::AfterQueued(this);
+    }
+    auto& Ivk_PH_RenderAlphaSortList = UnionCore::CreateHook(
+        PH_VIRTUAL(0x00718770) /* zCRnd_D3D::RenderAlphaSortList */,
+        &zCRnd_D3D::PH_RenderAlphaSortList, UnionCore::Hook_Auto);
+    void zCRnd_D3D::PH_RenderAlphaSortList() {
+        THISCALL(Ivk_PH_RenderAlphaSortList)();
+        AfterAlphaSort(this);
+    }
     auto& Ivk_PH_OnDamage = UnionCore::CreateHook(
         PH_VIRTUAL(0x00730FE0) /* oCNpc::OnDamage(oSDamageDescriptor&) */,
         &oCNpc::PH_OnDamage, UnionCore::Hook_Auto);
@@ -356,6 +375,10 @@ namespace {
     ParryHotter::AimCamera gCamera;
     // Development diagnostics: Gothic/System/ParryHotter_cast.log.
     ParryHotter::CastLog gLog;
+    bool AdmitAlphaPoly(zCRnd_D3D* renderer, zCPolygon* poly, zCMaterial* material) {
+        return ParryAlphaGuard::Before(renderer, poly, material, gLog);
+    }
+    void AfterAlphaSort(zCRnd_D3D* renderer) { ParryAlphaGuard::AfterSort(renderer, gLog); }
     ParryHotter::ControlsTelemetry gControlsLog;
     std::uint64_t gInputSequence = 0;
     std::uint64_t gLastRequestId = 0;
@@ -1149,6 +1172,7 @@ namespace {
         zCModelNodeInst* hand = model->SearchNode(zSTRING("ZS_RIGHTHAND"));
         if (!hand || hand->nodeVisual) return;
         zCVisual* visual = zCVisual::LoadVisual(zSTRING("PH_WAND.3DS"));
+        ParryVisual::LoadedReference<zCVisual> loadedVisual(visual);
         if (!visual) return;
         model->SetNodeVisual(hand, visual, 0);
         if (hand->nodeVisual == visual) {
@@ -1959,6 +1983,17 @@ namespace {
                       static_cast<void*>(target), targetProbe.reason, targetProbe.angle,
                       targetProbe.scanned, targetProbe.eligible, targetProbe.tested,
                       targetProbe.cameraBlocked, targetProbe.actorBlocked, gTargetReleaseReady ? 1 : 0);
+            unsigned retainedFx = 0;
+            for (const auto& cast : gCastReferences)
+                for (const auto* effect : cast.effects) if (effect) ++retainedFx;
+            gLog.Line("effects request=%llu pfxEffects=%d particleCapacity=%d retainedFx=%u casts=%u "
+                      "alphaGuard=%d alphaPeak=%d alphaDroppedTotal=%llu",
+                      static_cast<unsigned long long>(snapshot.requestId),
+                      zCParticleFX::s_pfxList.numInList, zCParticleFX::s_globNumPart,
+                      retainedFx, static_cast<unsigned>(gCasts.Size(now)),
+                      ParryAlphaGuard::Supported() ? 1 : 0,
+                      ParryAlphaGuard::budget.LifetimePeakObserved(),
+                      static_cast<unsigned long long>(ParryAlphaGuard::budget.TotalDropped()));
         }
     }
 
@@ -1971,7 +2006,8 @@ cexport const char* ParryHotter_BuildId() {
 cexport void Game_Entry() {}
 cexport void Game_Init() {
     ParryCamera::Reset();
-    gLog.Line("build PH_CAST_V5_BODY_AIM_AVADA_READY");
+    gLog.Line("build PH_CAST_V6_ALPHA_POOL_GUARD");
+    ParryAlphaGuard::Configure(gLog);
     ParryControls::captureReleaseTarget = CaptureReleaseTarget;
     gControlsLog.Reset();
     gLog.Line("hooks MagicMode=%p Invest=%p Cast=%p SpellStatus=%p",

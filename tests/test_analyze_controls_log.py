@@ -248,6 +248,112 @@ aim seq=7 phase=snapshot mode=assist target=00000001 reason=acquired
                 self.assertEqual(main([str(path)]), 0)
             self.assertIn("Namierzanie: brak prawidlowych pomiarow w logu", output.getvalue())
 
+    def test_v6_alpha_totals_and_duplicate_summaries_are_not_added(self):
+        drop = ("1.0 alpha_guard phase=drop native=2048 capacity=2048 peak=2048 "
+                "droppedBatch=1 droppedTotal=1 badCounter=0 name=[MAGE FIRE] texture=[FIRE SMOKE.TGA]\n")
+        batch = ("1.1 alpha_guard phase=batch batch=3 nativeAfterSort=0 drain=1 peak=2048 "
+                 "admittedCalls=2048 droppedBatch=100 badCounterSamples=2 intervalBatches=3 "
+                 "intervalDropped=100 intervalBadCounters=5 intervalPeak=2048 droppedTotal=100\n")
+        report = analyze_log("0.0 alpha_guard enabled=1 capacity=2048 reason=native_g1_signature\n" +
+                             drop + drop + batch + batch +
+                             "2.0 effects pfxEffects=12 particleCapacity=4096 alphaGuard=1 alphaPeak=2048 alphaDroppedTotal=100\n")
+        alpha = report["render_alpha"]
+        self.assertTrue(alpha["observed"])
+        self.assertTrue(alpha["guard_enabled"])
+        self.assertEqual(alpha["guard_reason"], "native_g1_signature")
+        self.assertEqual(alpha["capacity"], 2048)
+        self.assertEqual(alpha["peak_observed"], 2048)
+        self.assertEqual(alpha["max_dropped_total_observed"], 100)
+        self.assertEqual(alpha["overflow_reports"], 1)
+        self.assertEqual(alpha["bad_counter_samples_observed"], 5)
+        self.assertEqual(alpha["pfx_effects_peak"], 12)
+        self.assertEqual(alpha["particle_capacity"], 4096)
+        self.assertEqual(alpha["last_drop_material"], "MAGE FIRE")
+        self.assertEqual(alpha["last_drop_texture"], "FIRE SMOKE.TGA")
+        self.assertEqual(report["totals"]["confirmed"], 0)
+
+    def test_alpha_enabled_without_overflow_keeps_actual_zero_measurements(self):
+        alpha = analyze_log("""alpha_guard enabled=1 capacity=2048 reason=native_g1_signature
+effects pfxEffects=0 particleCapacity=4096 alphaGuard=1 alphaPeak=0 alphaDroppedTotal=0
+effects pfxEffects=3 particleCapacity=4096 alphaGuard=1 alphaPeak=137 alphaDroppedTotal=0
+effects pfxEffects=1 particleCapacity=4096 alphaGuard=1 alphaPeak=120 alphaDroppedTotal=0
+""")["render_alpha"]
+        self.assertTrue(alpha["observed"])
+        self.assertEqual(alpha["peak_observed"], 137)
+        self.assertEqual(alpha["max_dropped_total_observed"], 0)
+        self.assertEqual(alpha["overflow_reports"], 0)
+        self.assertEqual(alpha["pfx_effects_peak"], 3)
+        self.assertEqual(alpha["particle_capacity"], 4096)
+        self.assertIsNone(alpha["bad_counter_samples_observed"])
+        self.assertIsNone(alpha["last_drop_material"])
+
+    def test_unsupported_alpha_renderer_does_not_fake_raw_counter_reads(self):
+        alpha = analyze_log("""alpha_guard enabled=0 capacity=2048 reason=unsupported_renderer_patch
+effects pfxEffects=4 particleCapacity=4096 alphaGuard=0 alphaPeak=0 alphaDroppedTotal=0
+alpha_guard phase=batch peak=2048 droppedTotal=8 badCounterSamples=1
+""")["render_alpha"]
+        self.assertTrue(alpha["observed"])
+        self.assertFalse(alpha["guard_enabled"])
+        self.assertEqual(alpha["guard_reason"], "unsupported_renderer_patch")
+        self.assertIsNone(alpha["peak_observed"])
+        self.assertIsNone(alpha["max_dropped_total_observed"])
+        self.assertIsNone(alpha["bad_counter_samples_observed"])
+        self.assertEqual(alpha["overflow_reports"], 0)
+        self.assertEqual(alpha["pfx_effects_peak"], 4)
+        self.assertEqual(alpha["particle_capacity"], 4096)
+
+    def test_missing_or_invalid_alpha_metrics_are_not_invented(self):
+        for trace in ("0.0 build PH_CAST_V5_BODY_AIM_AVADA_READY\n",
+                      """alpha_guard enabled=nan capacity=nan reason=unknown
+alpha_guard phase=drop native=nan capacity=-1 peak=NaN droppedTotal=-1 badCounter=-1 name=[invalid] texture=[invalid]
+effects alphaGuard=nan alphaPeak=inf alphaDroppedTotal=-2 pfxEffects=-1 particleCapacity=0
+alpha_guard phase=future alphaGuard=1 capacity=999999 peak=123 droppedTotal=99
+"""):
+            with self.subTest(trace=trace):
+                report = analyze_log(trace)
+                alpha = report["render_alpha"]
+                self.assertFalse(alpha["observed"])
+                self.assertIsNone(alpha["guard_enabled"])
+                self.assertIsNone(alpha["capacity"])
+                self.assertIsNone(alpha["peak_observed"])
+                self.assertIsNone(alpha["max_dropped_total_observed"])
+                self.assertIsNone(alpha["bad_counter_samples_observed"])
+                self.assertIsNone(alpha["pfx_effects_peak"])
+                self.assertIsNone(alpha["particle_capacity"])
+                self.assertIsNone(alpha["last_drop_material"])
+                self.assertEqual(alpha["overflow_reports"], 0)
+                json.dumps(report, allow_nan=False)
+
+    def test_alpha_interval_counts_do_not_become_an_inferred_total(self):
+        alpha = analyze_log("""alpha_guard phase=batch peak=2048 droppedBatch=100 intervalDropped=100 intervalBadCounters=2 intervalPeak=2048
+alpha_guard phase=batch peak=2048 droppedBatch=100 intervalDropped=100 intervalBadCounters=2 intervalPeak=2048
+""")["render_alpha"]
+        self.assertTrue(alpha["observed"])
+        self.assertIsNone(alpha["guard_enabled"])
+        self.assertEqual(alpha["peak_observed"], 2048)
+        self.assertIsNone(alpha["max_dropped_total_observed"])
+        self.assertEqual(alpha["overflow_reports"], 0)
+        self.assertEqual(alpha["bad_counter_samples_observed"], 2)
+
+    def test_alpha_cli_reports_absence_protection_and_particle_capacity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "ParryHotter_cast.log"
+            path.write_text("0.0 build PH_CAST_V5_BODY_AIM_AVADA_READY\n", encoding="utf-8")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(main([str(path)]), 0)
+            self.assertIn("Renderer alpha: brak pomiarow w logu", output.getvalue())
+            path.write_text("alpha_guard enabled=1 capacity=2048 reason=native_g1_signature\n"
+                            "effects pfxEffects=2 particleCapacity=4096 alphaGuard=1 alphaPeak=90 alphaDroppedTotal=0\n",
+                            encoding="utf-8")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(main([str(path)]), 0)
+            self.assertIn("Renderer alpha: ochrona=aktywna", output.getvalue())
+            self.assertIn("maksymalny zaobserwowany droppedTotal=0", output.getvalue())
+            self.assertIn("pojemnosc puli czastek=4096", output.getvalue())
+            self.assertNotIn("aktywnych czastek=4096", output.getvalue())
+
     def test_cli_json_summary_and_missing_file(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "ParryHotter_cast.log"

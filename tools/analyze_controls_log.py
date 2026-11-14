@@ -15,6 +15,7 @@ COUNTS = ("requested", "confirmed", "refused", "timeout", "cancelled")
 _TIMESTAMP = re.compile(r"^\s*(\d+(?:\.\d+)?)\s+")
 _FIELDS = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 _NATIVE_POINTER = re.compile(r"(?:0[xX][0-9a-fA-F]{1,16}|[0-9a-fA-F]{8,16})\Z")
+_BRACKET_FIELDS = re.compile(r"\b(name|texture)=\[([^\]\r\n]*)\]")
 
 
 def _integer(value: str | None) -> int | None:
@@ -102,6 +103,28 @@ def analyze_log(text: str) -> dict:
     aim_snapshot_acquired = aim_dimmed = aim_malformed = 0
     aim_modes = {"ray": 0, "assist": 0}
     aim_miss_reasons: dict[str, int] = {}
+    seen_alpha_drops: set[tuple[float | None, str]] = set()
+    render_alpha = {
+        "observed": False,
+        "guard_enabled": None,
+        "guard_reason": None,
+        "capacity": None,
+        "peak_observed": None,
+        "max_dropped_total_observed": None,
+        "overflow_reports": 0,
+        "bad_counter_samples_observed": None,
+        "pfx_effects_peak": None,
+        "particle_capacity": None,
+        "last_drop_material": None,
+        "last_drop_texture": None,
+        "limitation": "Pomiary nie ustalaja przyczyny przepelnienia. Maksima licznikow nie sa sumowane; particle_capacity oznacza pojemnosc, nie aktywne czastki.",
+    }
+
+    def alpha_max(key: str, value: str | None, limit: int | None = None) -> None:
+        number = _integer(value)
+        if number is not None and number >= 0 and (limit is None or number <= limit):
+            previous = render_alpha[key]
+            render_alpha[key] = number if previous is None else max(previous, number)
 
     def count(category: str, slot: int | None) -> None:
         if slot is not None and 0 <= slot < len(slots):
@@ -137,6 +160,62 @@ def analyze_log(text: str) -> dict:
                 input_events[kind] = input_events.get(kind, 0) + 1
                 if sequence is not None:
                     seen_inputs.add(sequence)
+
+        if body.startswith("alpha_guard ") or body.startswith("effects "):
+            configuration = body.startswith("alpha_guard ") and "phase" not in fields
+            alpha_record = configuration or fields.get("phase") in ("drop", "batch")
+            enabled = _integer(fields.get("enabled")) if configuration else (
+                _integer(fields.get("alphaGuard")) if body.startswith("effects ") else None)
+            if enabled in (0, 1):
+                if render_alpha["guard_enabled"] != bool(enabled):
+                    render_alpha["guard_reason"] = None
+                render_alpha["guard_enabled"] = bool(enabled)
+                render_alpha["observed"] = True
+                if configuration:
+                    render_alpha["guard_reason"] = fields.get("reason")
+            if body.startswith("effects "):
+                alpha_max("pfx_effects_peak", fields.get("pfxEffects"))
+                capacity = _integer(fields.get("particleCapacity"))
+                if capacity is not None and capacity > 0:
+                    render_alpha["particle_capacity"] = capacity
+            if body.startswith("alpha_guard ") and alpha_record:
+                capacity = _integer(fields.get("capacity"))
+                if capacity is not None and capacity > 0:
+                    render_alpha["capacity"] = capacity
+            # A disabled/unsupported renderer never reads the raw counter.
+            # Its zeroed policy snapshots must not become native measurements.
+            if render_alpha["guard_enabled"] is not False:
+                old_metrics = tuple(render_alpha[key] for key in (
+                    "peak_observed", "max_dropped_total_observed", "bad_counter_samples_observed"))
+                capacity = render_alpha["capacity"] or 2048
+                if body.startswith("effects "):
+                    alpha_max("peak_observed", fields.get("alphaPeak"), capacity)
+                    alpha_max("max_dropped_total_observed", fields.get("alphaDroppedTotal"))
+                elif alpha_record and fields.get("phase") in ("drop", "batch"):
+                    alpha_max("peak_observed", fields.get("peak"), capacity)
+                    alpha_max("peak_observed", fields.get("intervalPeak"), capacity)
+                    alpha_max("max_dropped_total_observed", fields.get("droppedTotal"))
+                    alpha_max("bad_counter_samples_observed", fields.get("badCounter"), 1)
+                    alpha_max("bad_counter_samples_observed", fields.get("badCounterSamples"))
+                    alpha_max("bad_counter_samples_observed", fields.get("intervalBadCounters"))
+                    if fields["phase"] == "drop":
+                        identity = (timestamp, body)
+                        native = _integer(fields.get("native"))
+                        dropped = _integer(fields.get("droppedTotal"))
+                        bad = _integer(fields.get("badCounter"))
+                        if (identity not in seen_alpha_drops and native == capacity and
+                                dropped is not None and dropped > 0 and bad in (None, 0)):
+                            seen_alpha_drops.add(identity)
+                            render_alpha["overflow_reports"] += 1
+                        # Copy complete bracketed names, including spaces.
+                        names = dict(_BRACKET_FIELDS.findall(body))
+                        if native is not None and bad in (None, 0, 1):
+                            render_alpha["last_drop_material"] = names.get("name")
+                            render_alpha["last_drop_texture"] = names.get("texture")
+                new_metrics = tuple(render_alpha[key] for key in (
+                    "peak_observed", "max_dropped_total_observed", "bad_counter_samples_observed"))
+                if old_metrics != new_metrics or render_alpha["overflow_reports"]:
+                    render_alpha["observed"] = True
 
         if body.startswith("aim "):
             phase = fields.get("phase")
@@ -325,6 +404,7 @@ def analyze_log(text: str) -> dict:
         "successful_unmatched": successful_unmatched,
         "pending_request_ids": sorted(set(requests) - terminal_ids),
         "latency_ms": _stats(latencies),
+        "render_alpha": render_alpha,
         "aim": {
             "observed": bool(aim_releases or aim_snapshots),
             "release_samples": aim_releases,
@@ -422,6 +502,18 @@ def main(argv: list[str] | None = None) -> int:
                 f"{reason}={count}" for reason, count in sorted(aim["miss_reasons"].items())))
     else:
         print("Namierzanie: brak prawidlowych pomiarow w logu")
+    alpha = report["render_alpha"]
+    if not alpha["observed"]:
+        print("Renderer alpha: brak pomiarow w logu")
+    else:
+        enabled = {True: "aktywna", False: "wylaczona", None: "brak informacji"}[alpha["guard_enabled"]]
+        print(f"Renderer alpha: ochrona={enabled}, powod={alpha['guard_reason'] or 'brak informacji'}")
+        print(f"Zmierzony szczyt puli alpha: {alpha['peak_observed'] if alpha['peak_observed'] is not None else 'brak pomiaru'}, "
+              f"maksymalny zaobserwowany droppedTotal={alpha['max_dropped_total_observed'] if alpha['max_dropped_total_observed'] is not None else 'brak pomiaru'}, "
+              f"raporty przepelnienia={alpha['overflow_reports']}")
+    if alpha["pfx_effects_peak"] is not None or alpha["particle_capacity"] is not None:
+        print(f"PFX: najwiecej wpisow={alpha['pfx_effects_peak'] if alpha['pfx_effects_peak'] is not None else 'brak pomiaru'}, "
+              f"pojemnosc puli czastek={alpha['particle_capacity'] if alpha['particle_capacity'] is not None else 'brak pomiaru'}")
     for warning in report["warnings"]:
         print("Uwaga: " + warning)
     print(report["limitation"])

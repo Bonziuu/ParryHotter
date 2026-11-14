@@ -339,3 +339,54 @@ Pełne łączenie skoku z animacją górnej części ciała nadal wymaga osobnej
 Znacznik: `PH_CAST_V5_BODY_AIM_AVADA_READY`. Nowa próba ma porównać łatwość
 przechwytywania przy głowie, stopach i obok ciała, zmianę między dwoma NPC,
 ścianę/zasięg oraz krótki klik Avady.
+
+## Awaria renderera i ochrona puli alfa V6 (14.11.2026)
+
+Użytkownik zgłosił `XD3D_AlphaBlendPoly: xd3d_numAlphaPolys>=MAXALPHAPOLYS
+(Too many alphapolys)`, a następnie `OBJ: Memory leaks found`. Nowy log V5 ma
+5 REQUEST i 5 udanych Cast: 3 Flipendo, 1 Levicorpus, 1 Rictusempra. Ostatni
+Cast jest przy 67,646 s, potem bohater ginie przy 70,702 s; log kończy się
+w stanie dead po pauzie. Log nie zawierał liczników renderera, więc nie
+przypisujemy konkretnej teksturze ani czarowi przyczyny przepełnienia.
+
+Disasemblacja G1 1.08k potwierdza stałą pulę 2048 polygonów.
+`zCRnd_D3D::XD3D_AlphaBlendPoly @ 0x00716320` czyta licznik spod this+0x80A18
+i porównuje z 0x800 pod 0x716341. Gałąź przepełnienia zgłasza błąd, po czym
+wraca bez zapisu polygona, zwiększenia licznika ani dodania do listy sortowania.
+Funkcja ma ABI void thiscall(poly, material), ret 8; callerzy nie używają EAX.
+`RenderAlphaSortList @ 0x00718770` opróżnia kolejkę i zeruje licznik. BeginFrame
+zeruje głowy bucketów, ale nie ten licznik.
+
+HUD nie używa tej puli: zCView::Blit -> DrawTile -> DrawPolySimple rysuje
+bezpośrednio przez D3D DrawPrimitive. Nie znaleziono nowego mnożenia FX w V5
+przez SetFocusVob, IsValidTarget ani Scope. Wskazanie konkretnego emitera lub
+materiału wymaga diagnostyki nowego buildu.
+
+V6 hookuje obie funkcje po adresie. Przy pełnej puli pomija tylko nadmiarowy
+polygon, zachowując natywną kolejkę i limit; nie wykonuje dodatkowego flush,
+nie powiększa bufora i nie zapisuje licznika renderera. Przezroczyste fragmenty
+ponad limit mogą zostać pominięte w przeciążonej partii rysowania. To ochrona
+przed awaryjnym zamknięciem, a nie dowód usunięcia źródła nadmiaru.
+
+Przed włączeniem ochrony sprawdzane są dwie sekwencje instrukcji poza entry
+detour. Zmieniony układ/limit innej łatki wyłącza ochronę; diagnostyka zapisuje
+`unsupported_renderer_patch`. Nie opieramy odczytu na komentarzu SDK, który
+podaje przesunięcie różne o 4 bajty od potwierdzonego kodu silnika.
+
+Nowe wpisy `alpha_guard`: enabled/capacity na starcie, pierwszy drop z nazwą
+materiału i tekstury, potem podsumowania batch maksymalnie raz na sekundę.
+Peak pochodzi z odczytów po natywnym zapisie; reset statystyk partii następuje
+tylko po zaobserwowaniu zera po sortowaniu. `effects` przy 2 Hz zapisuje liczbę
+wpisów PFX, pojemność puli cząstek, zachowane referencje FX, liczbę śledzonych
+rzutów oraz szczyt/drops alfa. `s_globNumPart=4096` to pojemność, nie liczba
+aktywnych cząstek.
+
+Osobno naprawiono potwierdzony wcześniejszy wyciek w AttachWand: LoadVisual
+zwraca własną referencję, a SetNodeVisual dodaje referencję węzła.
+`VisualReference.hpp` zwalnia referencję ładowania po sukcesie, odrzuceniu lub
+wcześniejszym powrocie. gWandVisual pozostaje słabym wskaźnikiem. Nie wiążemy
+tego wycieku bez dowodów z przepełnieniem puli alfa ani ze wszystkimi możliwymi
+komunikatami OBJ podczas awaryjnego zamykania.
+
+Znacznik: `PH_CAST_V6_ALPHA_POOL_GUARD`. Test w grze: odtworzyć sekwencję
+czarów i sytuację po śmierci bohatera, zachować log także przy braku awarii.

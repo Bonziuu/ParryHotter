@@ -6,7 +6,7 @@ potwierdzają samodzielnie, że natywna DLL poprawnie wykonuje akcje w grze.
 
 W tej iteracji przygotowano kolejkę naciśnięć/puszczeń, rozdzielenie wyboru
 slotu od przygotowanego czaru oraz nowe moduły kamery, skoku i diagnostyki.
-Zintegrowana DLL zapisuje znacznik `PH_CAST_V5_BODY_AIM_AVADA_READY` oraz
+Zintegrowana DLL zapisuje znacznik `PH_CAST_V6_ALPHA_POOL_GUARD` oraz
 odpowiednie wpisy logu. Brak pola pomiarowego oznacza **brak pomiaru**,
 a nie pozytywny wynik testu.
 
@@ -160,3 +160,19 @@ Analizator uruchamiaj z aktualnego folderu projektu zawierającego to narzędzie
 Wynik bez próbek skoku lub kamery oznacza, że tych pomiarów nie znaleziono.
 Przekaż log wraz z opisem nieudanej próby i krótkim nagraniem; bez filmu nie
 da się potwierdzić wyglądu animacji, kadru ani zgodności wizualnej z HP2.
+
+## Awaria „Too many alphapolys”
+
+Po aktualizacji V6 sprawdź początek logu: znacznik V6 i `alpha_guard enabled=1
+capacity=2048 reason=native_g1_signature`. Wartość 0 oznacza niezgodność
+z sygnaturą natywnego renderera; nie jest potwierdzeniem aktywnej ochrony.
+
+Powtórz na testowym zapisie rzuty Flipendo, Levicorpus i Rictusempra oraz
+sytuację po śmierci bohatera, przy której wystąpił błąd. Zachowaj log przed
+kolejnym startem także wtedy, gdy błąd nie wróci. Przy przeciążeniu może
+pojawić się wpis `alpha_guard phase=drop`; pominięcie nadmiaru nie oznacza
+nieudanego rzutu. `phase=batch` opisuje opróżnienie partii kolejki, nie
+koniecznie całą klatkę.
+
+W `effects` pole `particleCapacity` opisuje pojemność, nie aktywne cząstki.
+Sam komunikat OBJ podczas zamykania nie identyfikuje źródła wycieku.
