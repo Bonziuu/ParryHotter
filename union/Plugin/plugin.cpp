@@ -78,6 +78,7 @@ namespace {
     void LowerWand();
     void UpdateSpellPreparation();
     void LogNativeMagic(oCAIHuman* ai, bool after);
+    void ObserveNativeRelease();
     void LogPlayerMagicAI(oCAIHuman* ai, bool after, bool driving);
     unsigned gPlayerMagicCalls = 0;
 }
@@ -202,6 +203,7 @@ namespace Gothic_I_Classic {
         auto* book = own && OwnsMagicInput() ? player->GetSpellBook() : nullptr;
         ParryTargeting::Scope targeting(book ? book->GetSelectedSpell() : nullptr);
         LogNativeMagic(this, false);
+        if (own) ObserveNativeRelease();
         const int result = THISCALL(Ivk_PH_MagicMode)();
         LogNativeMagic(this, true);
         return result;
@@ -532,6 +534,7 @@ namespace {
     int gRequestedSlot = -1;
     oCNpc* gRequestedTarget = nullptr;
     bool gCastConfirmed = false;
+    bool gRequestReleased = false;
     ParryHotter::CastLedger::TimePoint gRequestExpires{};
     ParryHotter::CastLedger::Id gHitCast = 0;
     int gHitSlot = -1;
@@ -551,6 +554,7 @@ namespace {
         gRequestedSpell = nullptr;
         gRequestedTarget = nullptr;
         gRequestedSlot = -1;
+        gRequestReleased = false;
         ++gRequestGeneration;
         if (spell) spell->Release();
         if (target) target->Release();
@@ -961,6 +965,7 @@ namespace {
     zCView* gReticle = nullptr;
     bool gAiming = false;
     bool gManaPrepared = false;
+    bool gTargetReleaseReady = false;
     bool OwnsMagicInput() { return gAiming && ParryControls::ContextAvailable(); }
     bool CastRequestPending() { return gRequestedSpell != nullptr; }
 
@@ -1018,6 +1023,16 @@ namespace {
                   static_cast<void*>(gRequestedSpell), state[10], state[11]);
     }
 
+    void ObserveNativeRelease() {
+        if (!gRequestedSpell || gRequestReleased || !OwnsMagicInput() ||
+            ParryControls::nativeMagicRearm || ParryControls::nativeCastKeys ||
+            !ParryControls::nativeCastAction) return;
+        gRequestReleased = true;
+        gLog.Line("cast request=%llu slot=%d RELEASE status=%d invested=%d",
+                  static_cast<unsigned long long>(gRequestId), gRequestedSlot,
+                  gRequestedSpell->spellStatus, gRequestedSpell->manaInvested);
+    }
+
     // Gothic I's own magic AI (oCAIHuman::MagicMode) invests while ACTION and
     // UP are both pressed and fires on their release; it then plays the
     // shoot animation and casts at the focus. LMB is not bound to ACTION while
@@ -1041,14 +1056,16 @@ namespace {
                 return false;
             }
             const int status = gRequestedSpell->GetSpellStatus();
-            const bool instant = gRequestedSlot >= 0 &&
-                gRequestedSlot < ParryHotter::kSpellCount && kInstantSpell[gRequestedSlot];
-            // Gothic fires on key release once it may: instant spells after
-            // the status reached CAST, invest spells after >= 1 mana point.
-            hold = !gCastConfirmed &&
-                   (status == SPL_STATUS_DONTINVEST ||
-                    (instant ? status != SPL_STATUS_CAST
-                             : gRequestedSpell->manaInvested <= 0));
+            const bool requireCastStatus = gRequestedSlot >= 0 &&
+                gRequestedSlot < ParryHotter::kSpellCount &&
+                (kInstantSpell[gRequestedSlot] ||
+                 gRequestedSlot == static_cast<int>(ParryHotter::Spell::AvadaKedavra));
+            // BreathOfDeath's release script sends STOP before native CAST,
+            // unlike Wind/Thunder/Storm's legal partially invested release.
+            hold = ParryControls::ShouldHoldNativeCast(requireCastStatus,
+                gCastConfirmed, status, gRequestedSpell->manaInvested,
+                gRequestReleased && gRequestedSlot ==
+                    static_cast<int>(ParryHotter::Spell::AvadaKedavra));
             if (gRequestedTarget) {
                 player->SetFocusVob(static_cast<zCVob*>(gRequestedTarget));
                 gRequestedSpell->spellTarget = gRequestedTarget;
@@ -1237,27 +1254,27 @@ namespace {
     }
 
     void ShowTarget(bool hasTarget, int spell, oCNpc* npc = nullptr) {
+        gTargetReleaseReady = false;
         if (!screen || !gReticle) return;
         ParryHotter::TargetGlyphLayout glyph{};
         auto* camera = zCCamera::activeCam;
-        if (hasTarget && npc && camera && gAiming && gManaPrepared &&
-            spell >= 0 && spell < ParryHotter::kSpellCount &&
-            kTargetTextures[spell] && gCooldown.ReadyByTime(
-                spell, ParryHotter::SpellCooldown::Clock::now())) {
+        const bool acquired = hasTarget && npc && camera &&
+            spell >= 0 && spell < ParryHotter::kSpellCount && kTargetTextures[spell];
+        bool ready = acquired && gAiming && gManaPrepared && gPreparedSlot == spell &&
+            !gRequestedSpell && !gQueuedTarget &&
+            gCooldown.ReadyByTime(spell, ParryHotter::SpellCooldown::Clock::now());
+        if (ready) {
             auto* book = player ? player->GetSpellBook() : nullptr;
             auto* prepared = book ? book->GetSelectedSpell() : nullptr;
             ParryTargeting::Scope targeting(prepared);
             if (!prepared || prepared->GetSpellID() != kGothicSpellIds[spell] ||
                 !prepared->GetEnabled() || !prepared->IsValidTarget(npc) ||
                 prepared->GetSpellStatus() == SPL_STATUS_STOP) {
-                // DONTINVEST (prepare animation still running) keeps the lock:
-                // HP2 shows the target at once, a release then queues the cast.
-                hasTarget = false;
+                ready = false;
             }
         }
-        if (hasTarget && npc && camera && gAiming && gManaPrepared &&
-            spell >= 0 && spell < ParryHotter::kSpellCount && kTargetTextures[spell] &&
-            gCooldown.ReadyByTime(spell, ParryHotter::SpellCooldown::Clock::now())) {
+        gTargetReleaseReady = ready;
+        if (acquired) {
             // Anchor the glyph at the NPC's upper torso, not at the crosshair.
             zVEC3 anchor = npc->bbox3D.mins +
                 (npc->bbox3D.maxs - npc->bbox3D.mins) * zVEC3(0.5f);
@@ -1267,7 +1284,8 @@ namespace {
                 float x = 0.0f, y = 0.0f;
                 camera->Project(&cameraSpace, x, y);
                 ParryHotter::TargetGlyphInput input{};
-                input.aiming = input.targetValid = input.spellReady = true;
+                input.aiming = input.targetValid = true;
+                input.spellReady = ready;
                 input.inFront = input.lineOfSight = true; // center ray was unobstructed
                 input.anchorX = x;
                 input.anchorY = y;
@@ -1280,8 +1298,7 @@ namespace {
             }
         }
         const int targetIndex = glyph.visible ? spell : -1;
-        const bool locked = hasTarget && npc && gAiming && gManaPrepared &&
-            spell >= 0 && spell < ParryHotter::kSpellCount;
+        const bool locked = acquired;
         {
             // Diagnostics: a valid lock whose glyph is not drawn.
             static auto lastReport = std::chrono::steady_clock::time_point{};
@@ -1329,14 +1346,30 @@ namespace {
     // point to another nearby NPC and must not silently block the crosshair.
     // The nearest ray hit must itself be a living NPC, not a wall or prop.
     // True when nothing blocks the straight line from the camera to the NPC.
+    struct AimProbe {
+        const char* mode = "none";
+        const char* reason = "no_target";
+        unsigned scanned = 0, eligible = 0, tested = 0;
+        unsigned cameraBlocked = 0, actorBlocked = 0;
+        float angle = -1.0f;
+    };
+    AimProbe gAimProbe;
+
     bool CameraSeesNpc(zCWorld* world, const zVEC3& eye, oCNpc* npc) {
-        zVEC3 aim = npc->bbox3D.mins + (npc->bbox3D.maxs - npc->bbox3D.mins) * zVEC3(0.5f);
-        aim[1] += (npc->bbox3D.maxs[1] - npc->bbox3D.mins[1]) * 0.18f;
-        const zVEC3 ray = aim - eye;
-        const int flags = zTRACERAY_VOB_BBOX | zTRACERAY_STAT_POLY | zTRACERAY_FIRSTHIT;
-        if (!world->TraceRayNearestHit(eye, ray, static_cast<zCVob*>(player), flags))
-            return true;
-        return world->traceRayReport.foundVob == npc;
+        const zVEC3 size = npc->bbox3D.maxs - npc->bbox3D.mins;
+        const zVEC3 centre = npc->bbox3D.mins + size * zVEC3(0.5f);
+        // A visible head or lower body can acquire the target too. The
+        // actor-to-target native LOS is still required separately.
+        constexpr float heights[] = {0.5f, 0.8f, 0.2f};
+        const int flags = zTRACERAY_VOB_BBOX | zTRACERAY_STAT_POLY |
+                          zTRACERAY_POLY_IGNORE_TRANSP | zTRACERAY_VOB_IGNORE_NO_CD_DYN;
+        for (const float height : heights) {
+            zVEC3 aim = centre;
+            aim[1] = npc->bbox3D.mins[1] + size[1] * height;
+            if (!world->TraceRayNearestHit(eye, aim-eye, static_cast<zCVob*>(player), flags) ||
+                world->traceRayReport.foundVob == npc) return true;
+        }
+        return false;
     }
 
     bool InSpellRange(oCNpc* npc) {
@@ -1366,6 +1399,12 @@ namespace {
         if (entry.npc) entry.npc->Release();
         entry = {sequence, GetCenteredNpcTarget()};
         if (entry.npc) entry.npc->AddRef();
+        gLog.Line("aim seq=%llu phase=release mode=%s target=%p reason=%s angle=%.2f "
+                  "scanned=%u eligible=%u tested=%u cameraBlocked=%u actorBlocked=%u",
+                  static_cast<unsigned long long>(sequence), gAimProbe.mode,
+                  static_cast<void*>(entry.npc), gAimProbe.reason, gAimProbe.angle,
+                  gAimProbe.scanned, gAimProbe.eligible, gAimProbe.tested,
+                  gAimProbe.cameraBlocked, gAimProbe.actorBlocked);
     }
 
     oCNpc* TakeReleaseTarget(std::uint64_t sequence) {
@@ -1376,45 +1415,65 @@ namespace {
         return target; // Caller owns the retained reference.
     }
 
-    // HP2 cursor snap: the living NPC nearest the screen centre inside an
-    // 8 degree cone, visible from the camera and within 19 m of the player.
+    // Acquire around the projected body rather than one point on the chest.
+    // Range and both lines of sight remain authoritative for every candidate.
     oCNpc* AimAssistTarget(zCWorld* world, const zVEC3& eye, const zVEC3& direction) {
         oCWorld* gameWorld = ogame ? ogame->GetGameWorld() : nullptr;
         if (!gameWorld || static_cast<zCWorld*>(gameWorld) != world ||
             !gameWorld->voblist_npcs) return nullptr;
         std::vector<ParryHotter::AimCandidate> candidates;
         std::vector<oCNpc*> npcs;
+        int sticky = -1;
         for (auto* node = gameWorld->voblist_npcs->next; node; node = node->next) {
+            ++gAimProbe.scanned;
             oCNpc* npc = node->data;
-            if (!npc || npc == player || npc->GetHomeWorld() != world) continue;
-            zVEC3 at = npc->bbox3D.mins + (npc->bbox3D.maxs - npc->bbox3D.mins) * zVEC3(0.5f);
-            at[1] += (npc->bbox3D.maxs[1] - npc->bbox3D.mins[1]) * 0.18f;
-            candidates.push_back({{at[VX], at[VY], at[VZ]}, !npc->IsDead()});
+            if (!npc || npc == player || npc->GetHomeWorld() != world ||
+                npc->IsDead() || !InSpellRange(npc)) continue;
+            const zVEC3 half = (npc->bbox3D.maxs-npc->bbox3D.mins) * zVEC3(0.5f);
+            const zVEC3 centre = npc->bbox3D.mins + half;
+            if (npc == gStickyTarget) sticky = static_cast<int>(npcs.size());
+            candidates.push_back({{centre[VX], centre[VY], centre[VZ]}, true,
+                                  {half[VX], half[VY], half[VZ]}});
             npcs.push_back(npc);
         }
+        gAimProbe.eligible = static_cast<unsigned>(candidates.size());
         const ParryHotter::AimVec eyeV{eye[VX], eye[VY], eye[VZ]};
         const ParryHotter::AimVec dirV{direction[VX], direction[VY], direction[VZ]};
-        // Keep an already selected assist target through a small margin,
-        // but exact centre-ray hits below always take priority.
-        for (std::size_t i = 0; i < npcs.size(); ++i) {
-            if (npcs[i] != gStickyTarget) continue;
-            const std::vector<ParryHotter::AimCandidate> sticky{candidates[i]};
-            if (ParryHotter::PickAimAssist(eyeV, dirV, sticky, {10.0f, 2400.0f}) == 0 &&
-                !TargetFailure(npcs[i]) && CameraSeesNpc(world, eye, npcs[i])) return npcs[i];
+        gAimProbe.reason = candidates.empty() ? "no_living_npc_in_range" : "outside_assist";
+        for (const auto& candidate : candidates) {
+            const auto score = ParryHotter::ScoreAimCandidate(eyeV, dirV, candidate);
+            if (score.valid && (gAimProbe.angle < 0.0f || score.angleDegrees < gAimProbe.angle))
+                gAimProbe.angle = score.angleDegrees;
         }
-        // Try candidates from the best angle down until one is visible.
-        for (int attempts = 0; attempts < 4; ++attempts) {
-            const int best = ParryHotter::PickAimAssist(eyeV, dirV, candidates);
-            if (best < 0) return nullptr;
+        // Test every geometrically eligible candidate in priority order. An
+        // obscured crowd must not hide the next valid NPC after four attempts.
+        for (std::size_t attempt = 0; attempt < candidates.size(); ++attempt) {
+            const int best = ParryHotter::PickAimAssist(eyeV, dirV, candidates, {}, sticky);
+            if (best < 0) break;
+            ++gAimProbe.tested;
             oCNpc* npc = npcs[best];
-            if (!TargetFailure(npc) && CameraSeesNpc(world, eye, npc)) return npc;
-            candidates[best].alive = false; // exclude and look for the next
+            const char* failure = TargetFailure(npc);
+            if (failure) {
+                ++gAimProbe.actorBlocked;
+                gAimProbe.reason = failure;
+            } else if (!CameraSeesNpc(world, eye, npc)) {
+                ++gAimProbe.cameraBlocked;
+                gAimProbe.reason = "camera_occluded";
+            } else {
+                gAimProbe.mode = "assist";
+                gAimProbe.reason = "acquired";
+                gAimProbe.angle = ParryHotter::ScoreAimCandidate(eyeV, dirV, candidates[best]).angleDegrees;
+                return npc;
+            }
+            candidates[best].alive = false;
         }
         return nullptr;
     }
 
     oCNpc* GetCenteredNpcTarget() {
+        gAimProbe = {};
         if (!player) {
+            gAimProbe.reason = "no_player";
             SetAimTargetState(ParryHotter::AimTargetState::NoPlayer);
             return nullptr;
         }
@@ -1422,27 +1481,32 @@ namespace {
         zCVob* cameraVob = cam ? cam->camVob : nullptr;
         zCWorld* world = player->GetHomeWorld();
         if (!cameraVob) {
+            gAimProbe.reason = "no_camera";
             SetAimTargetState(ParryHotter::AimTargetState::NoCamera);
             return nullptr;
         }
         if (!world) {
+            gAimProbe.reason = "no_world";
             SetAimTargetState(ParryHotter::AimTargetState::NoWorld);
             return nullptr;
         }
 
         zVEC3 direction = cameraVob->GetAtVectorWorld();
         if (direction.Length_Sqr() < 0.01f) {
+            gAimProbe.reason = "no_camera_direction";
             SetAimTargetState(ParryHotter::AimTargetState::NoCamera);
             return nullptr;
         }
         direction.Normalize();
         const zVEC3 eye = cameraVob->GetPositionWorld();
         zVEC3 ray = direction;
-        ray *= zVEC3(float(ParryTargeting::kRangeCm));
+        // The camera is behind the actor; only the actor's 1900 cm gate
+        // defines spell range. The picking ray must reach beyond that offset.
+        ray *= zVEC3(ParryHotter::AimAssistSettings{}.maxEyeDistance);
         // Nearest hit (no FIRSTHIT): any first-found far polygon must not
         // hide an NPC standing right under the dot.
         const int flags = zTRACERAY_VOB_BBOX | zTRACERAY_STAT_POLY |
-                          zTRACERAY_POLY_IGNORE_TRANSP;
+                          zTRACERAY_POLY_IGNORE_TRANSP | zTRACERAY_VOB_IGNORE_NO_CD_DYN;
         auto state = ParryHotter::AimTargetState::NoRayHit;
         if (world->TraceRayNearestHit(eye, ray, static_cast<zCVob*>(player), flags)) {
             oCNpc* npc = zDYNAMIC_CAST<oCNpc>(world->traceRayReport.foundVob);
@@ -1453,6 +1517,9 @@ namespace {
             else if (!TargetFailure(npc)) {
                 SetAimTargetState(ParryHotter::AimTargetState::ValidNpc);
                 gStickyTarget = npc;
+                gAimProbe.mode = "ray";
+                gAimProbe.reason = "acquired";
+                gAimProbe.angle = 0.0f;
                 return npc;
             }
         }
@@ -1671,6 +1738,7 @@ namespace {
         gRequestId = ++gLastRequestId;
         gRequestSequence = sequence;
         gCastConfirmed = false;
+        gRequestReleased = false;
         gChargeKeys = false;
         // IsValidTarget may require a caster/effect created by native setup.
         // Validate geometry now; native eligibility is checked before Cast.
@@ -1750,7 +1818,11 @@ namespace {
             gDiagnosticVisible = !gDiagnosticVisible;
             gDiagnosticDirty = true;
         }
-        if (!allowed) ParryControls::events.Capture(false, false, false);
+        if (!allowed) {
+            ParryControls::events.Capture(false, false, false);
+            gAimProbe = {};
+            gAimProbe.reason = context;
+        }
         const auto now = ParryHotter::SpellCooldown::Clock::now();
         static const auto clockStart = now;
         const auto nowMs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now - clockStart).count());
@@ -1761,6 +1833,7 @@ namespace {
             LowerWand();
         }
         oCNpc* target = allowed ? GetCenteredNpcTarget() : nullptr;
+        const AimProbe targetProbe = gAimProbe;
         ParryHotter::InputEvent event;
         while (ParryControls::events.Pop(event)) {
             gInputSequence = event.sequence;
@@ -1807,6 +1880,15 @@ namespace {
             gLog.Line("cast request=%llu slot=%d TIMEOUT status=%d invested=%d magicCalls=%u",
                       static_cast<unsigned long long>(gRequestId), gRequestedSlot,
                       gRequestedSpell->GetSpellStatus(), gRequestedSpell->manaInvested, gPlayerMagicCalls);
+            LowerWand();
+        }
+        // A jump/hit can replace Avada's shoot pose and reset its full cost.
+        // Do not charge that release again and spend its mana twice.
+        if (gRequestedSpell && gRequestedSlot == static_cast<int>(ParryHotter::Spell::AvadaKedavra) &&
+            gRequestReleased && gRequestedSpell->manaInvested <= 0 &&
+            gRequestedSpell->spellStatus == SPL_STATUS_CANINVEST) {
+            gLog.Line("cast request=%llu slot=%d CANCEL reason=shoot_interrupted",
+                      static_cast<unsigned long long>(gRequestId), gRequestedSlot);
             LowerWand();
         }
         if (gRequestedSpell && (gRequestedSpell->manaInvested < 0 ||
@@ -1871,6 +1953,12 @@ namespace {
                       ParryCamera::last.sampleHits, ParryCamera::last.traceCount,
                       ParryMovingCasting::Supported() ? 1 : 0, ParryMovingCasting::Applied() ? 1 : 0,
                       static_cast<unsigned long long>(ParryControls::events.Dropped()));
+            gLog.Line("aim seq=%llu phase=snapshot mode=%s target=%p reason=%s angle=%.2f "
+                      "scanned=%u eligible=%u tested=%u cameraBlocked=%u actorBlocked=%u ready=%d",
+                      static_cast<unsigned long long>(gInputSequence), targetProbe.mode,
+                      static_cast<void*>(target), targetProbe.reason, targetProbe.angle,
+                      targetProbe.scanned, targetProbe.eligible, targetProbe.tested,
+                      targetProbe.cameraBlocked, targetProbe.actorBlocked, gTargetReleaseReady ? 1 : 0);
         }
     }
 
@@ -1883,7 +1971,7 @@ cexport const char* ParryHotter_BuildId() {
 cexport void Game_Entry() {}
 cexport void Game_Init() {
     ParryCamera::Reset();
-    gLog.Line("build PH_CAST_V4_INSTANT_WAND_REARM");
+    gLog.Line("build PH_CAST_V5_BODY_AIM_AVADA_READY");
     ParryControls::captureReleaseTarget = CaptureReleaseTarget;
     gControlsLog.Reset();
     gLog.Line("hooks MagicMode=%p Invest=%p Cast=%p SpellStatus=%p",

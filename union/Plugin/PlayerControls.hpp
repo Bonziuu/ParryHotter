@@ -250,6 +250,16 @@ inline bool DeferNativeSpellCast(bool prepared, bool requested, int status) {
     return nativeMagicInput && prepared && !requested && status == SPL_STATUS_CAST;
 }
 
+// Some native spells reject a partial release even after investment began.
+// BreathOfDeath (Avada) needs its native CAST status; its first free setup
+// point alone is not enough. The engine still decides readiness and mana.
+inline bool ShouldHoldNativeCast(bool requireCastStatus, bool confirmed,
+                                 int status, int invested, bool releaseStarted = false) {
+    if (confirmed || releaseStarted || status == SPL_STATUS_STOP) return false;
+    if (status == SPL_STATUS_DONTINVEST) return true;
+    return requireCastStatus ? status != SPL_STATUS_CAST : invested <= 0;
+}
+
 // Call from every lifecycle hook where the game takes control back.
 inline void ReleaseNativeBindings() { mouseGuard.Release(); }
 

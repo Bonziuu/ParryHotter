@@ -6,7 +6,7 @@ potwierdzają samodzielnie, że natywna DLL poprawnie wykonuje akcje w grze.
 
 W tej iteracji przygotowano kolejkę naciśnięć/puszczeń, rozdzielenie wyboru
 slotu od przygotowanego czaru oraz nowe moduły kamery, skoku i diagnostyki.
-Zintegrowana DLL zapisuje znacznik `PH_CAST_V4_INSTANT_WAND_REARM` oraz
+Zintegrowana DLL zapisuje znacznik `PH_CAST_V5_BODY_AIM_AVADA_READY` oraz
 odpowiednie wpisy logu. Brak pola pomiarowego oznacza **brak pomiaru**,
 a nie pozytywny wynik testu.
 
@@ -56,6 +56,31 @@ Sloty w logu są liczone od zera: 0 Flipendo, 1 Levicorpus, 2 Rictusempra,
 3 Expelliarmus, 4 Bumbardo, 5 Avada. Klawisze 7–0 to puste sloty.
 Udany `engine Cast` dowodzi wykonania natywnego rzutu, ale nie dowodzi trafienia:
 efekt na NPC trzeba dodatkowo obejrzeć.
+
+## Przechwytywanie celu V5
+
+Przytrzymaj LPM i prowadź kropkę przez głowę, nogi oraz tuż obok ciała NPC.
+Sprawdź małego wroga blisko i człowieka dalej. Znak ma pojawiać się bez
+konieczności trafienia w jeden punkt tułowia. Przy dwóch NPC przejdź wyraźnie
+kropką na drugiego: znak powinien zmienić cel. Stary cel nie powinien
+blokować nowego.
+
+Powtórz przy ścianie, za przeszkodą i poza 19 m: pomoc nie może omijać
+widoczności ani zasięgu. Przy odnowieniu lub braku many znak pozostaje
+przygaszony (cel przechwycony, czar niedostępny).
+
+Avadę sprawdź kilkoma krótkimi kliknięciami na żywym celu, z przerwą na
+odnowienie. Puszczenie zbyt wcześnie powinno dokończyć konieczne ładowanie
+i rzucić, zamiast kończyć się `engine_stop`. Osobno skocz podczas shoot:
+przerwanie powinno być jawne, bez ponownego zużycia pełnej many dla tej
+samej sekwencji puszczenia.
+
+Nowe logi: `aim phase=release` opisuje dokładny moment puszczenia LPM,
+a `phase=snapshot` aktualny stan 2 Hz. `mode=ray|assist|none`, `reason`,
+`angle`, `eligible`, `tested`, `cameraBlocked`, `actorBlocked` wyjaśniają
+przechwycenie lub brak celu. `angle` to kąt od rzutowanej bryły, nie od
+jednego punktu; 0 oznacza kropkę na obszarze bryły. `ready=0` w próbce
+oznacza niedostępność czaru i przygaszony znak, a nie brak celu.
 
 ## Konsola, menu i przerwania
 

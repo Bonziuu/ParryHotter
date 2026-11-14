@@ -21,7 +21,8 @@ void AssertFits(const TargetGlyphInput& in, const TargetGlyphLayout& out) {
     assert(out.x >= 0 && out.y >= 0);
     assert(out.x + out.width <= in.viewportWidth);
     assert(out.y + out.height <= in.viewportHeight);
-    assert(out.alpha >= 219 && out.alpha <= 255);
+    if (in.spellReady) assert(out.alpha >= 219 && out.alpha <= 255);
+    else assert(out.alpha == 110);
 }
 
 int main() {
@@ -30,18 +31,35 @@ int main() {
     AssertFits(in, initial);
     assert(initial.x == 3896 && initial.y == 2800 && initial.width == 400);
 
-    // Every cast-readiness and projection condition actually gates the glyph.
-    for (int flag = 0; flag < 5; ++flag) {
+    // Acquisition stays visible while cooldown/mana/preparation blocks casting.
+    // Only opacity changes; the same target keeps its position and animation.
+    for (const double seconds : {0.0, 0.6, 1.2, 1.8, 2.4}) {
+        auto ready = in;
+        ready.seconds = seconds;
+        const auto bright = ComputeTargetGlyph(ready);
+        AssertFits(ready, bright);
+        ready.spellReady = false;
+        const auto dimmed = ComputeTargetGlyph(ready);
+        AssertFits(ready, dimmed);
+        assert(dimmed.x == bright.x && dimmed.y == bright.y);
+        assert(dimmed.width == bright.width && dimmed.height == bright.height);
+        assert(dimmed.alpha < bright.alpha);
+    }
+
+    // Invalid acquisition and projection conditions still hide both states.
+    for (int flag = 0; flag < 4; ++flag) {
         auto blocked = in;
         switch (flag) {
             case 0: blocked.aiming = false; break;
             case 1: blocked.targetValid = false; break;
-            case 2: blocked.spellReady = false; break;
-            case 3: blocked.inFront = false; break;
-            case 4: blocked.lineOfSight = false; break;
+            case 2: blocked.inFront = false; break;
+            case 3: blocked.lineOfSight = false; break;
         }
-        const auto hidden = ComputeTargetGlyph(blocked);
-        assert(!hidden.visible && hidden.alpha == 0);
+        for (const bool ready : {false, true}) {
+            blocked.spellReady = ready;
+            const auto hidden = ComputeTargetGlyph(blocked);
+            assert(!hidden.visible && hidden.alpha == 0);
+        }
     }
 
     // Bob, pulse and glow all change; there is no fixed reticle icon.
@@ -75,12 +93,16 @@ int main() {
 
     // An offscreen anchor must hide, not become a misleading edge indicator.
     for (const float value : {-1.0f, 8192.0f, 10000.0f}) {
-        in = ValidInput();
-        in.anchorX = value;
-        assert(!ComputeTargetGlyph(in).visible);
-        in = ValidInput();
-        in.anchorY = value;
-        assert(!ComputeTargetGlyph(in).visible);
+        for (const bool ready : {false, true}) {
+            in = ValidInput();
+            in.spellReady = ready;
+            in.anchorX = value;
+            assert(!ComputeTargetGlyph(in).visible);
+            in = ValidInput();
+            in.spellReady = ready;
+            in.anchorY = value;
+            assert(!ComputeTargetGlyph(in).visible);
+        }
     }
     for (const float x : {0.0f, 8191.0f}) {
         for (const float y : {0.0f, 8191.0f}) {

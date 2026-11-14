@@ -154,6 +154,100 @@ class ControlsLogAnalysisTests(unittest.TestCase):
         self.assertEqual(report["movement"]["samples"], 0)
         json.dumps(report, allow_nan=False)
 
+    def test_v5_aim_releases_are_unique_but_snapshots_can_share_an_input_sequence(self):
+        report = analyze_log("""0.0 build PH_CAST_V5_BODY_AIM_AVADA_READY
+1.0 aim seq=10 phase=release mode=assist target=34C50000 reason=acquired angle=2.5 eligible=3 tested=1
+1.0 aim seq=10 phase=release mode=assist target=34C50000 reason=acquired angle=2.5 eligible=3 tested=1
+1.1 aim seq=11 phase=release mode=ray target=0x34c50000 reason=acquired angle=0
+1.2 aim seq=12 phase=release mode=none target=00000000 reason=outside_assist angle=13
+1.3 aim seq=13 phase=release mode=none target=(nil) reason=camera_occluded angle=0
+1.4 aim seq=0 phase=snapshot mode=none target=00000000 reason=no_target ready=0
+1.5 aim seq=13 phase=snapshot mode=assist target=34C50000 reason=acquired ready=0
+2.0 aim seq=13 phase=snapshot mode=assist target=34C50000 reason=acquired ready=1
+""")
+        aim = report["aim"]
+        self.assertTrue(aim["observed"])
+        self.assertEqual(aim["release_samples"], 4)
+        self.assertEqual(aim["acquired_releases"], 2)
+        self.assertEqual(aim["missed_releases"], 2)
+        self.assertEqual(aim["release_modes"], dict(ray=1, assist=1))
+        self.assertEqual(aim["miss_reasons"], dict(outside_assist=1, camera_occluded=1))
+        self.assertEqual(aim["snapshot_samples"], 3)
+        self.assertEqual(aim["acquired_snapshots"], 2)
+        self.assertEqual(aim["dimmed_snapshots"], 1)
+        self.assertEqual(aim["malformed_samples"], 0)
+        self.assertEqual(report["totals"]["confirmed"], 0)
+        self.assertIn("nie dowodzi rzutu", aim["limitation"])
+
+    def test_null_aim_pointers_never_count_as_acquired(self):
+        nulls = ("00000000", "0000000000000000", "0x0", "0X00000000", "(nil)")
+        trace = ""
+        for sequence, pointer in enumerate(nulls, 1):
+            trace += f"aim seq={sequence} phase=release mode=none target={pointer} reason=outside_assist\n"
+            trace += f"aim seq={sequence + 10} phase=release mode=assist target={pointer} reason=acquired\n"
+        aim = analyze_log(trace)["aim"]
+        self.assertEqual(aim["release_samples"], len(nulls))
+        self.assertEqual(aim["missed_releases"], len(nulls))
+        self.assertEqual(aim["acquired_releases"], 0)
+        self.assertEqual(aim["malformed_samples"], len(nulls))
+
+    def test_incomplete_or_contradictory_aim_entries_are_not_measurements(self):
+        records = (
+            "seq=1 mode=assist target=34C50000 reason=acquired",
+            "seq=nan phase=release mode=assist target=34C50000 reason=acquired",
+            "seq=-1 phase=release mode=assist target=34C50000 reason=acquired",
+            "seq=0 phase=release mode=assist target=34C50000 reason=acquired",
+            "seq=1 phase=release mode=unknown target=34C50000 reason=acquired",
+            "seq=1 phase=release mode=assist target=bogus reason=acquired",
+            "seq=1 phase=release mode=assist target=123 reason=acquired",
+            "seq=1 phase=release mode=assist target=34C50000",
+            "seq=1 phase=release mode=assist target=34C50000 reason=outside_assist",
+            "seq=1 phase=release mode=none target=34C50000 reason=outside_assist",
+            "seq=1 phase=snapshot mode=none target=00000000 reason=acquired ready=0",
+        )
+        report = analyze_log("\n".join("aim " + record for record in records))
+        aim = report["aim"]
+        self.assertFalse(aim["observed"])
+        self.assertEqual(aim["release_samples"], 0)
+        self.assertEqual(aim["snapshot_samples"], 0)
+        self.assertEqual(aim["dimmed_snapshots"], 0)
+        self.assertEqual(aim["malformed_samples"], len(records))
+        self.assertTrue(any("sprzeczne wpisy namierzania" in warning for warning in report["warnings"]))
+        json.dumps(report, allow_nan=False)
+
+    def test_invalid_aim_release_does_not_reserve_its_sequence_or_fake_dimness(self):
+        aim = analyze_log("""aim seq=7 phase=release mode=assist target=not_a_pointer reason=acquired
+aim seq=7 phase=release mode=assist target=00000001 reason=acquired
+aim seq=7 phase=release mode=ray target=00000001 reason=acquired
+aim seq=7 phase=snapshot mode=assist target=00000001 reason=acquired ready=nan
+aim seq=7 phase=snapshot mode=assist target=00000001 reason=acquired
+""")["aim"]
+        self.assertEqual(aim["acquired_releases"], 1)
+        self.assertEqual(aim["release_modes"], dict(ray=0, assist=1))
+        self.assertEqual(aim["snapshot_samples"], 2)
+        self.assertEqual(aim["dimmed_snapshots"], 0)
+        self.assertEqual(aim["malformed_samples"], 1)
+
+    def test_aim_cli_describes_observations_and_legacy_absence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "ParryHotter_cast.log"
+            path.write_text("aim seq=2 phase=release mode=none target=00000000 reason=target_occluded\n"
+                            "aim seq=3 phase=release mode=assist target=34C50000 reason=acquired\n"
+                            "aim seq=3 phase=snapshot mode=assist target=34C50000 reason=acquired ready=0\n",
+                            encoding="utf-8")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(main([str(path)]), 0)
+            self.assertIn("Namierzanie przy puszczeniu LPM: namierzone=1, bez_celu=1", output.getvalue())
+            self.assertIn("namierzone_z_niegotowym_czarem=1", output.getvalue())
+            self.assertIn("target_occluded=1", output.getvalue())
+            path.write_text("0.0 build PH_CAST_INPUT_NATIVE_READY_V2\n", encoding="utf-8")
+            self.assertFalse(analyze_file(path)["aim"]["observed"])
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(main([str(path)]), 0)
+            self.assertIn("Namierzanie: brak prawidlowych pomiarow w logu", output.getvalue())
+
     def test_cli_json_summary_and_missing_file(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "ParryHotter_cast.log"

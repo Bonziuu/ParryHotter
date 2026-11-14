@@ -294,3 +294,48 @@ obejmować przynajmniej trzy kolejne rzuty tym samym czarem i powtórzenie dla
 wszystkich sześciu slotów. Kompilacja i regresje nie dowodzą jeszcze działania
 V4 w grze użytkownika. Paczka aktualizatora zawiera teraz również analizator
 logów i instrukcję prób.
+
+## V4 potwierdzone w grze; namierzanie i Avada V5 (14.11.2026)
+
+Nowy log V4: 31 REQUEST, 20 potwierdzonych Cast, brak timeoutów i utraconych
+zdarzeń. Wszystkie sześć slotów ma co najmniej jeden udany natywny rzut:
+Flipendo 4, Levicorpus 4, Rictusempra 1, Expelliarmus 5, Bumbardo 2, Avada 4.
+Ponawianie po pierwszym rzucie jest odblokowane; użytkownik potwierdził wyraźną
+poprawę. Nadal nie należy utożsamiać Cast z potwierdzonym trafieniem/efektem HP2.
+
+Użytkownik zgłosił trudne namierzanie. Z 110 puszczeń LPM 70 nie miało celu.
+Stary assist badał pojedynczy punkt tułowia i kąt 8°, z limitem czterech prób.
+V5 bada prostokąt obejmujący rzut całej bryły NPC z marginesem 12°. Retencja ma
+16° i bonus najwyżej 2°; nowa postać pod kropką wygrywa ze starym celem obok.
+Dokładny promień nadal ma pierwszeństwo. Martwi, niewłaściwy świat i cele ponad
+1900 cm od gracza są odfiltrowywane przed rankingiem. Nie ma limitu czterech
+kandydatów. Promień od kamery sięga 2400 cm, żeby uwzględnić odsunięcie kamery;
+nie zwiększa to zasięgu czaru. Widoczność wymaga nadal natywnego LOS od gracza
+oraz sprawdzenia od kamery (środek/góra/dół bryły). Promienie ignorują
+niekolizyjne VOB, np. efekty; nie używają FIRSTHIT zamiast najbliższego trafienia.
+
+Przechwycony cel ma znak również przy niegotowym czarze: alpha 110 przy
+odnowieniu, braku many lub przygotowania, pulsowanie 219–255 gdy rzut jest
+dozwolony. Przygaszenie nie daje prawa do rzutu; walidacja natywna pozostaje.
+Nowe wpisy `aim` zapisują moment puszczenia i próbki 2 Hz: tryb ray/assist/none,
+przyczynę, odległość kątową od bryły, liczbę kandydatów i odrzuceń przez LOS.
+
+Z 11 anulowań V4 wszystkie dotyczyły Avady. Dziesięć to zbyt wczesne
+zwolnienie natywnego UP przy statusie CANINVEST i invested=2..4. Skrypt
+`Spell_ProcessMana_Release` zwraca wówczas SENDSTOP dla BreathOfDeath, IceCube
+i Berzerk; Windfist/Thunderball/Stormfist dopuszczają częściowy rzut.
+Avada wymaga więc natywnego CAST, podobnie jak dwa dotychczasowe czary
+jednofazowe. Nie wyliczamy progu ze zużytej many: w tym logu koszt 5 daje
+CAST dopiero przy invested=6 (pierwszy punkt jest przygotowaniem).
+Źródło: Unified-PL commit `1a65a231f83d31ff1f2b80dba25a3c4843bff4be`,
+`Magic/Spells_Process_Mana_Released.d` i `Magic/Spell_BreathOfDeath.d`.
+
+Jeden przypadek dotyczył skoku, który przerwał shoot już gotowej Avady.
+V5 zapisuje `RELEASE` i w razie wyzerowania inwestycji anuluje takie żądanie
+jako `shoot_interrupted`; nie ładuje tej samej Avady ponownie za kolejne
+5 many. Pozostałe czary zachowują dotychczasową obsługę częściowego rzutu.
+Pełne łączenie skoku z animacją górnej części ciała nadal wymaga osobnej pracy.
+
+Znacznik: `PH_CAST_V5_BODY_AIM_AVADA_READY`. Nowa próba ma porównać łatwość
+przechwytywania przy głowie, stopach i obok ciała, zmianę między dwoma NPC,
+ścianę/zasięg oraz krótki klik Avady.

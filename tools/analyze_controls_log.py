@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize local V1/V2/V3 gameplay logs without inferring unlogged success."""
+"""Summarize local gameplay logs without inferring unlogged success."""
 from __future__ import annotations
 
 import argparse
@@ -14,6 +14,7 @@ SPELL_NAMES = ("Flipendo", "Levicorpus", "Rictusempra", "Expelliarmus",
 COUNTS = ("requested", "confirmed", "refused", "timeout", "cancelled")
 _TIMESTAMP = re.compile(r"^\s*(\d+(?:\.\d+)?)\s+")
 _FIELDS = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
+_NATIVE_POINTER = re.compile(r"(?:0[xX][0-9a-fA-F]{1,16}|[0-9a-fA-F]{8,16})\Z")
 
 
 def _integer(value: str | None) -> int | None:
@@ -37,6 +38,18 @@ def _finite_float(value: str | None) -> float | None:
     except (ValueError, OverflowError):
         return None
     return number if number is not None and math.isfinite(number) else None
+
+
+def _native_pointer(value: str | None) -> int | None:
+    """Read native %p output; None means unrecognised, zero means null.
+
+    G1/MSVC prints eight hex digits without a prefix. Also accept 64-bit
+    padding and the 0x/(nil) forms emitted by portable diagnostic runs.
+    Do not interpret arbitrary words or decimal-looking short text as a vob.
+    """
+    if value is not None and value.lower() == "(nil)":
+        return 0
+    return int(value, 16) if value is not None and _NATIVE_POINTER.fullmatch(value) else None
 
 
 def _stats(values: list[float]) -> dict:
@@ -84,6 +97,11 @@ def analyze_log(text: str) -> dict:
     desired_speeds: list[float] = []
     actual_speeds: list[float] = []
     vertical_speeds: list[float] = []
+    seen_aim_releases: set[int] = set()
+    aim_releases = aim_acquired = aim_missed = aim_snapshots = 0
+    aim_snapshot_acquired = aim_dimmed = aim_malformed = 0
+    aim_modes = {"ray": 0, "assist": 0}
+    aim_miss_reasons: dict[str, int] = {}
 
     def count(category: str, slot: int | None) -> None:
         if slot is not None and 0 <= slot < len(slots):
@@ -119,6 +137,38 @@ def analyze_log(text: str) -> dict:
                 input_events[kind] = input_events.get(kind, 0) + 1
                 if sequence is not None:
                     seen_inputs.add(sequence)
+
+        if body.startswith("aim "):
+            phase = fields.get("phase")
+            sequence = _integer(fields.get("seq"))
+            mode = fields.get("mode")
+            target = _native_pointer(fields.get("target"))
+            reason = fields.get("reason")
+            acquired = mode in aim_modes and target is not None and target > 0 and reason == "acquired"
+            missed = mode == "none" and target == 0 and bool(reason) and reason != "acquired"
+            # A partial/contradictory record is not evidence of either a
+            # caught or missed target. Only valid releases reserve their ID.
+            valid = (phase in ("release", "snapshot") and sequence is not None and
+                     sequence >= (1 if phase == "release" else 0) and (acquired or missed))
+            if not valid:
+                aim_malformed += 1
+            elif phase == "release":
+                if sequence not in seen_aim_releases:
+                    seen_aim_releases.add(sequence)
+                    aim_releases += 1
+                    if acquired:
+                        aim_acquired += 1
+                        aim_modes[mode] += 1
+                    else:
+                        aim_missed += 1
+                        aim_miss_reasons[reason] = aim_miss_reasons.get(reason, 0) + 1
+            else:
+                # seq belongs to the last input, so successive 2 Hz samples
+                # legitimately share it. Count samples rather than actions.
+                aim_snapshots += 1
+                if acquired:
+                    aim_snapshot_acquired += 1
+                    aim_dimmed += int(_integer(fields.get("ready")) == 0)
 
         if body.startswith("jump "):
             jump_id = _integer(fields.get("id"))
@@ -258,6 +308,8 @@ def analyze_log(text: str) -> dict:
         warnings.append("Brak znacznika wersji DLL; log moze byc starszy albo niekompletny.")
     if malformed:
         warnings.append("Czesc wpisow ma brakujace lub nieprawidlowe pola; zobacz unattributed i malformed_lines.")
+    if aim_malformed:
+        warnings.append("Pominieto niepelne lub sprzeczne wpisy namierzania; zobacz aim.malformed_samples.")
     return {
         "build_markers": build_markers,
         "slots": slots,
@@ -273,6 +325,19 @@ def analyze_log(text: str) -> dict:
         "successful_unmatched": successful_unmatched,
         "pending_request_ids": sorted(set(requests) - terminal_ids),
         "latency_ms": _stats(latencies),
+        "aim": {
+            "observed": bool(aim_releases or aim_snapshots),
+            "release_samples": aim_releases,
+            "acquired_releases": aim_acquired,
+            "missed_releases": aim_missed,
+            "release_modes": aim_modes,
+            "miss_reasons": aim_miss_reasons,
+            "snapshot_samples": aim_snapshots,
+            "acquired_snapshots": aim_snapshot_acquired,
+            "dimmed_snapshots": aim_dimmed,
+            "malformed_samples": aim_malformed,
+            "limitation": "Namierzenie nie dowodzi rzutu ani trafienia; brak probek oznacza brak pomiaru.",
+        },
         "jumps": {
             "phases": jump_counts,
             "reasons": jump_reasons,
@@ -345,6 +410,18 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Kamera: probki={camera['samples']}, ograniczone={camera['blocked_samples']}, dach={camera['roof_limited_samples']}")
     movement = report["movement"]
     print(f"Ruch: probki={movement['samples']}, zablokowane={movement['blocked_samples']}, maly_postep={movement['low_progress_samples']}")
+    aim = report["aim"]
+    if aim["observed"]:
+        print(f"Namierzanie przy puszczeniu LPM: namierzone={aim['acquired_releases']}, "
+              f"bez_celu={aim['missed_releases']}, promien={aim['release_modes']['ray']}, "
+              f"pomoc={aim['release_modes']['assist']}")
+        print(f"Probki namierzania: {aim['snapshot_samples']}, "
+              f"namierzone_z_niegotowym_czarem={aim['dimmed_snapshots']}")
+        if aim["miss_reasons"]:
+            print("Przyczyny braku celu: " + ", ".join(
+                f"{reason}={count}" for reason, count in sorted(aim["miss_reasons"].items())))
+    else:
+        print("Namierzanie: brak prawidlowych pomiarow w logu")
     for warning in report["warnings"]:
         print("Uwaga: " + warning)
     print(report["limitation"])

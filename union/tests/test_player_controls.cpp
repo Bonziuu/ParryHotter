@@ -101,7 +101,7 @@ inline zCTimer* ztimer=&timer;
 inline oCNpc* player=nullptr;
 inline oCGame* ogame=nullptr;
 inline zCInput_Win32* zinput=nullptr;
-constexpr int SPL_STATUS_DONTINVEST=0,SPL_STATUS_CANINVEST=1,SPL_STATUS_CAST=2;
+constexpr int SPL_STATUS_DONTINVEST=0,SPL_STATUS_CANINVEST=1,SPL_STATUS_CAST=2,SPL_STATUS_STOP=3;
 constexpr int BS_MOD_TRANSFORMED=4096,BS_MOD_CONTROLLED=2048,BS_MOD_CONTROLLING=8192,BS_ONLY_STATE=127,BS_STAND=0,BS_WALK=1,BS_RUN=3,BS_SPRINT=4,BS_SWIM=5,BS_JUMP=8,BS_CLIMB=9,BS_FALL=10,BS_UNCONSCIOUS=22,BS_CASTING=28;
 }
 #include "../Plugin/PlayerControls.hpp"
@@ -424,6 +424,48 @@ int main(){
   }
   // F11 alone/native movement has no owned player input scope.
   assert(!ParryControls::BlocksNativeSpellHotkey(KEY_0));
+ }
+ // BreathOfDeath rejects release before its CAST status. In the gameplay
+ // log the free setup point and partial 1..5 investments were still CANINVEST;
+ // releasing those points produced STOP, whereas the sixth point was ready.
+ {
+  struct NativeBreath {
+   int status=SPL_STATUS_CANINVEST,invested=0,casts=0;
+   void Tick(bool hold) {
+    if(status==SPL_STATUS_STOP) return;
+    if(hold){if(++invested==6) status=SPL_STATUS_CAST;}
+    else if(status==SPL_STATUS_CAST) ++casts;
+    else status=SPL_STATUS_STOP;
+   }
+  };
+  NativeBreath previous;
+  previous.Tick(previous.invested<=0);
+  previous.Tick(previous.invested<=0); // the old first-point release
+  assert(previous.invested==1 && previous.status==SPL_STATUS_STOP && previous.casts==0);
+  NativeBreath queuedRelease;
+  for(int frame=0;frame<7;++frame){
+   const bool hold=ParryControls::ShouldHoldNativeCast(
+    true,false,queuedRelease.status,queuedRelease.invested);
+   if(queuedRelease.invested<6) assert(hold);
+   else assert(!hold);
+   queuedRelease.Tick(hold);
+  }
+  assert(queuedRelease.status==SPL_STATUS_CAST && queuedRelease.casts==1);
+  for(int partial=1;partial<=5;++partial){
+   assert(ParryControls::ShouldHoldNativeCast(true,false,SPL_STATUS_CANINVEST,partial));
+   // Other charge spells still permit their existing partial-release policy.
+   assert(!ParryControls::ShouldHoldNativeCast(false,false,SPL_STATUS_CANINVEST,partial));
+  }
+  assert(ParryControls::ShouldHoldNativeCast(true,false,SPL_STATUS_DONTINVEST,0));
+  assert(ParryControls::ShouldHoldNativeCast(false,false,SPL_STATUS_CANINVEST,0));
+  assert(!ParryControls::ShouldHoldNativeCast(true,false,SPL_STATUS_CAST,6));
+  assert(!ParryControls::ShouldHoldNativeCast(true,false,SPL_STATUS_STOP,3));
+  assert(!ParryControls::ShouldHoldNativeCast(false,false,SPL_STATUS_STOP,0));
+  assert(!ParryControls::ShouldHoldNativeCast(true,true,SPL_STATUS_CANINVEST,3));
+  assert(!ParryControls::ShouldHoldNativeCast(false,true,SPL_STATUS_DONTINVEST,0));
+  // Once shoot started, a jump resetting investment must not charge twice.
+  assert(!ParryControls::ShouldHoldNativeCast(true,false,SPL_STATUS_CANINVEST,0,true));
+  assert(!ParryControls::ShouldHoldNativeCast(false,false,SPL_STATUS_DONTINVEST,0,true));
  }
  // G1 MagicMode's cast latch survives both keys up. A subsequent charge
  // must observe ACTION down + UP up first, even if physical LMB is released.

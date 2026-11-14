@@ -9,7 +9,7 @@ namespace ParryHotter {
 struct TargetGlyphInput {
     bool aiming = false;
     bool targetValid = false;
-    bool spellReady = false;
+    bool spellReady = false; // Availability changes opacity, not target acquisition.
     bool inFront = false;
     bool lineOfSight = false;
     // All dimensions use the same coordinates: pixels or ZenGin's 0..8192.
@@ -35,7 +35,7 @@ struct TargetGlyphLayout {
 
 inline TargetGlyphLayout ComputeTargetGlyph(const TargetGlyphInput& in) {
     TargetGlyphLayout out{};
-    if (!in.aiming || !in.targetValid || !in.spellReady || !in.inFront ||
+    if (!in.aiming || !in.targetValid || !in.inFront ||
         !in.lineOfSight || !std::isfinite(in.anchorX) ||
         !std::isfinite(in.anchorY) || !std::isfinite(in.viewportWidth) ||
         !std::isfinite(in.viewportHeight) || !std::isfinite(in.baseSize) ||
@@ -68,8 +68,11 @@ inline TargetGlyphLayout ComputeTargetGlyph(const TargetGlyphInput& in) {
                        0, maxY);
     out.width = size;
     out.height = size;
-    // Gentle glow: opacity breathes between 219 and 255.
-    out.alpha = 255 - static_cast<int>(std::lround(18.0f * (1.0f - pulse)));
+    // Acquisition stays visible while cooldown/mana/preparation blocks casting.
+    // Ready spells breathe between 219 and 255; unavailable spells stay dim.
+    out.alpha = in.spellReady
+        ? 255 - static_cast<int>(std::lround(18.0f * (1.0f - pulse)))
+        : 110;
     return out;
 }
 
